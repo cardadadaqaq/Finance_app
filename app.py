@@ -5,54 +5,316 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # =========================================================
-# 🔑 CONFIGURAZIONE: INCOLLA LA TUA CHIAVE QUI SOTTO
+# 🔑 CONFIGURAZIONE
 # =========================================================
-API_KEY = "8289268f09684b53abb50e095c0fe696" 
-# =========================================================
+st.set_page_config(page_title="Navy Terminal Pro", layout="wide", initial_sidebar_state="expanded")
 
-# FORZATURA STILE NAVY & BIANCO (Global CSS)
-st.set_page_config(page_title="Navy Terminal Pro", layout="wide")
+# =========================================================
+# GLOBAL CSS — Navy professionale, tutto bianco, no arancione
+# =========================================================
 st.markdown("""
     <style>
-    /* Sfondo principale e Sidebar */
-    .stApp, [data-testid="stSidebar"], [data-testid="stHeader"], .main {
-        background-color: #000080 !important;
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
+
+    /* ---- BASE ---- */
+    html, body, .stApp, [data-testid="stAppViewContainer"], .main {
+        background-color: #0A1628 !important;
+        font-family: 'IBM Plex Sans', sans-serif !important;
     }
-    /* Testi globali e scritte bianche lucenti */
-    h1, h2, h3, p, span, label, li, .stMarkdown {
+
+    /* ---- SIDEBAR ---- */
+    [data-testid="stSidebar"] {
+        background-color: #060E1E !important;
+        border-right: 1px solid #1E3A5F !important;
+    }
+    [data-testid="stSidebar"] * {
         color: #FFFFFF !important;
-        font-family: 'Helvetica', sans-serif;
     }
-    /* Forza il bianco sui titoli dei grafici e widget */
-    .stSelectbox label, .stTextInput label, .stSlider label, .stMultiSelect label {
+    [data-testid="stSidebar"] .stSelectbox > div > div {
+        background-color: #0D1F38 !important;
+        border: 1px solid #1E3A5F !important;
         color: #FFFFFF !important;
     }
-    /* Metriche */
-    [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: bold; }
-    [data-testid="stMetricLabel"] { color: #F0F0F0 !important; }
-    /* Input Fields */
-    input {
-        background-color: #000066 !important;
-        color: white !important;
+
+    /* Sidebar title */
+    [data-testid="stSidebar"] h1 {
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 1.1rem !important;
+        letter-spacing: 0.15em !important;
+        color: #FFFFFF !important;
+        border-bottom: 1px solid #1E3A5F;
+        padding-bottom: 0.75rem;
+        margin-bottom: 1.2rem;
     }
-    /* Tabelle */
-    .dataframe, [data-testid="stTable"], table {
-        background-color: #000066 !important;
-        color: white !important;
+
+    /* ---- HEADER ---- */
+    [data-testid="stHeader"] {
+        background-color: #060E1E !important;
+        border-bottom: 1px solid #1E3A5F !important;
     }
-    thead tr th { color: white !important; background-color: #000044 !important; }
-    tbody tr td { color: white !important; }
+
+    /* ---- TESTI ---- */
+    h1, h2, h3, h4, h5, h6 {
+        color: #FFFFFF !important;
+        font-family: 'IBM Plex Sans', sans-serif !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.02em !important;
+    }
+    p, span, li, div, label, .stMarkdown {
+        color: #E8EDF5 !important;
+        font-family: 'IBM Plex Sans', sans-serif !important;
+    }
+
+    /* ---- PAGE TITLE custom ---- */
+    .page-title {
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 1.6rem;
+        font-weight: 600;
+        color: #FFFFFF !important;
+        letter-spacing: 0.08em;
+        border-left: 3px solid #4A9EFF;
+        padding-left: 1rem;
+        margin-bottom: 1.8rem;
+    }
+
+    /* ---- METRICHE ---- */
+    [data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-weight: 600 !important;
+        font-size: 1.3rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #A8BDD4 !important;
+        font-size: 0.78rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    [data-testid="metric-container"] {
+        background-color: #0D1F38 !important;
+        border: 1px solid #1E3A5F !important;
+        border-radius: 6px !important;
+        padding: 0.8rem 1rem !important;
+    }
+
+    /* ---- INPUT & WIDGET LABELS → BIANCO, no arancione ---- */
+    .stTextInput label,
+    .stSelectbox label,
+    .stMultiSelect label,
+    .stSlider label,
+    .stNumberInput label,
+    .stRadio label,
+    label[data-testid] {
+        color: #FFFFFF !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.04em !important;
+        text-transform: uppercase !important;
+    }
+
+    /* Slider: thumb e track → bianco/blu, no arancione */
+    .stSlider [data-baseweb="slider"] [role="slider"] {
+        background-color: #4A9EFF !important;
+        border-color: #4A9EFF !important;
+    }
+    .stSlider [data-baseweb="slider"] [data-testid="stThumbValue"] {
+        color: #FFFFFF !important;
+        background-color: #4A9EFF !important;
+    }
+    /* Track riempita */
+    .stSlider [data-baseweb="slider"] div[class*="Track"] div:first-child {
+        background-color: #4A9EFF !important;
+    }
+    /* Valori min/max slider */
+    .stSlider span {
+        color: #A8BDD4 !important;
+    }
+
+    /* number_input frecce e bordo */
+    .stNumberInput input {
+        background-color: #0D1F38 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #1E3A5F !important;
+        border-radius: 4px !important;
+    }
+    .stNumberInput button {
+        background-color: #1E3A5F !important;
+        color: #FFFFFF !important;
+        border: none !important;
+    }
+
+    /* ---- INPUTS TESTO ---- */
+    input[type="text"], textarea, .stTextInput input {
+        background-color: #0D1F38 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #1E3A5F !important;
+        border-radius: 4px !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+    }
+    input[type="text"]:focus, textarea:focus {
+        border-color: #4A9EFF !important;
+        box-shadow: 0 0 0 1px #4A9EFF !important;
+    }
+
+    /* ---- SELECT BOX ---- */
+    .stSelectbox [data-baseweb="select"] > div {
+        background-color: #0D1F38 !important;
+        border: 1px solid #1E3A5F !important;
+        color: #FFFFFF !important;
+    }
+    [data-baseweb="popover"], [data-baseweb="menu"] {
+        background-color: #0D1F38 !important;
+        border: 1px solid #1E3A5F !important;
+    }
+    [data-baseweb="option"] {
+        background-color: #0D1F38 !important;
+        color: #FFFFFF !important;
+    }
+    [data-baseweb="option"]:hover {
+        background-color: #1E3A5F !important;
+    }
+
+    /* ---- TABELLE ---- */
+    .dataframe, table {
+        background-color: #0D1F38 !important;
+        color: #FFFFFF !important;
+        border-collapse: collapse !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.82rem !important;
+    }
+    thead tr th {
+        color: #A8BDD4 !important;
+        background-color: #060E1E !important;
+        border-bottom: 1px solid #1E3A5F !important;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.6rem 1rem !important;
+    }
+    tbody tr td {
+        color: #FFFFFF !important;
+        border-bottom: 1px solid #111E33 !important;
+        padding: 0.5rem 1rem !important;
+    }
+    tbody tr:hover td {
+        background-color: #1E3A5F !important;
+    }
+
+    /* ---- DIVIDER ---- */
+    hr {
+        border-color: #1E3A5F !important;
+    }
+
+    /* ---- ALERT/INFO ---- */
+    .stAlert, .stInfo, [data-testid="stNotification"] {
+        background-color: #0D1F38 !important;
+        border: 1px solid #1E3A5F !important;
+        color: #E8EDF5 !important;
+    }
+
+    /* ---- BUTTONS ---- */
+    .stButton > button {
+        background-color: #1E3A5F !important;
+        color: #FFFFFF !important;
+        border: 1px solid #4A9EFF !important;
+        border-radius: 4px !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.8rem !important;
+        letter-spacing: 0.06em !important;
+        transition: all 0.2s ease;
+    }
+    .stButton > button:hover {
+        background-color: #4A9EFF !important;
+        color: #000 !important;
+    }
+
+    /* ---- SCROLLBAR ---- */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #060E1E; }
+    ::-webkit-scrollbar-thumb { background: #1E3A5F; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4A9EFF; }
     </style>
+""", unsafe_allow_html=True)
+
+
+# =========================================================
+# SIDEBAR — Navbar professionale
+# =========================================================
+with st.sidebar:
+    st.markdown("""
+        <div style='text-align:center; margin-bottom:1.5rem;'>
+            <div style='font-family: IBM Plex Mono, monospace; font-size:1.3rem; font-weight:700;
+                        color:#FFFFFF; letter-spacing:0.15em;'>⚓ NAVY</div>
+            <div style='font-family: IBM Plex Mono, monospace; font-size:0.65rem; color:#4A9EFF;
+                        letter-spacing:0.3em; margin-top:2px;'>TERMINAL PRO</div>
+        </div>
+        <div style='height:1px; background: linear-gradient(90deg, transparent, #4A9EFF, transparent);
+                    margin-bottom:1.5rem;'></div>
     """, unsafe_allow_html=True)
 
-# Menu laterale
-st.sidebar.title("⚓ Navy Terminal")
-menu = ["🌍 Global Overview", "🧮 Analisi DCF", "📊 Multi-Compare", "🧪 Portfolio Backtest", "⌨️ Bloomberg Insights"]
-choice = st.sidebar.selectbox("Navigazione", menu)
+    menu_items = [
+        ("🌍", "Global Overview"),
+        ("🧮", "Analisi DCF"),
+        ("📊", "Multi-Compare"),
+        ("🧪", "Portfolio Backtest"),
+        ("⌨️", "Bloomberg Insights"),
+    ]
 
-# --- 1. GLOBAL OVERVIEW (20 TITOLI) ---
-if choice == "🌍 Global Overview":
-    st.title("Global Market Overview")
+    if "page" not in st.session_state:
+        st.session_state.page = "Global Overview"
+
+    for icon, label in menu_items:
+        is_active = st.session_state.page == label
+        btn_style = f"""
+            <style>
+            div[data-testid='stButton'] button[title='{label}'] {{
+                background-color: {'#1E3A5F' if is_active else 'transparent'} !important;
+                border-left: 3px solid {'#4A9EFF' if is_active else 'transparent'} !important;
+            }}
+            </style>
+        """
+        if st.button(f"{icon}  {label}", key=label, use_container_width=True):
+            st.session_state.page = label
+
+    st.markdown("""
+        <div style='height:1px; background: linear-gradient(90deg, transparent, #1E3A5F, transparent);
+                    margin-top:2rem; margin-bottom:1rem;'></div>
+        <div style='font-family: IBM Plex Mono, monospace; font-size:0.6rem; color:#2E4A6E;
+                    text-align:center; letter-spacing:0.12em;'>
+            MARKET DATA · REAL-TIME<br>POWERED BY YFINANCE
+        </div>
+    """, unsafe_allow_html=True)
+
+choice = st.session_state.page
+
+
+# =========================================================
+# UTILITY
+# =========================================================
+def page_title(text, subtitle=""):
+    st.markdown(f"""
+        <div class='page-title'>{text}</div>
+        {'<p style="color:#A8BDD4; font-size:0.88rem; margin-top:-1rem; margin-bottom:1.5rem;">'+subtitle+'</p>' if subtitle else ''}
+    """, unsafe_allow_html=True)
+
+PLOTLY_LAYOUT = dict(
+    template="plotly_dark",
+    paper_bgcolor='rgba(6,14,30,0.0)',
+    plot_bgcolor='rgba(13,31,56,0.5)',
+    font=dict(color="#E8EDF5", family="IBM Plex Mono, monospace", size=11),
+    legend=dict(bgcolor='rgba(6,14,30,0.8)', bordercolor='#1E3A5F', borderwidth=1),
+    xaxis=dict(gridcolor='#111E33', showgrid=True, zeroline=False),
+    yaxis=dict(gridcolor='#111E33', showgrid=True, zeroline=False),
+    margin=dict(l=40, r=20, t=40, b=40),
+    hovermode="x unified",
+)
+
+
+# =========================================================
+# 1. GLOBAL OVERVIEW
+# =========================================================
+if choice == "Global Overview":
+    page_title("🌍  Global Market Overview", "Snapshot in tempo reale dei principali indici e titoli globali")
+
     titles = {
         "S&P 500": "^GSPC", "Nasdaq 100": "^IXIC", "Dow Jones": "^DJI", "Nikkei 225": "^N225",
         "FTSE MIB": "FTSEMIB.MI", "DAX 40": "^GDAXI", "CAC 40": "^FCHI", "Hang Seng": "^HSI",
@@ -60,125 +322,462 @@ if choice == "🌍 Global Overview":
         "Apple": "AAPL", "Microsoft": "MSFT", "Nvidia": "NVDA", "Google": "GOOGL",
         "Tesla": "TSLA", "Amazon": "AMZN", "LVMH": "MC.PA", "ASML": "ASML.AS"
     }
-    cols = st.columns(4)
-    for i, (name, ticker) in enumerate(titles.items()):
-        try:
-            d = yf.Ticker(ticker).history(period="2d")
-            c, p = d['Close'].iloc[-1], d['Close'].iloc[-2]
-            cols[i%4].metric(name, f"{c:,.2f}", f"{((c-p)/p)*100:+.2f}%")
-        except: continue
 
-# --- 2. ANALISI DCF ---
-elif choice == "🧮 Analisi DCF":
-    st.title("Valutazione Discounted Cash Flow")
-    fcf = st.number_input("Free Cash Flow Attuale ($)", value=1000000000)
-    growth = st.slider("Crescita %", 1, 50, 10) / 100
-    wacc = st.slider("WACC %", 5, 20, 9) / 100
-    fair_value = (fcf * (1 + growth)) / (wacc - 0.02)
-    st.metric("Fair Value", f"${fair_value:,.2f}")
+    with st.spinner("Caricamento dati di mercato..."):
+        cols = st.columns(4)
+        for i, (name, ticker) in enumerate(titles.items()):
+            try:
+                d = yf.Ticker(ticker).history(period="2d")
+                if len(d) >= 2:
+                    c, p = d['Close'].iloc[-1], d['Close'].iloc[-2]
+                    pct = ((c - p) / p) * 100
+                    cols[i % 4].metric(name, f"{c:,.2f}", f"{pct:+.2f}%")
+            except:
+                cols[i % 4].metric(name, "N/A", "—")
 
-# --- 3. MULTI-COMPARE ---
-elif choice == "📊 Multi-Compare":
-    st.title("Percent Return Comparison")
-    tk_in = st.text_input("Ticker (separati da virgola)", "AAPL, MSFT, TSLA")
-    tk_list = [x.strip().upper() for x in tk_in.split(",")]
-    horizon = st.selectbox("Orizzonte", ["Mesi", "Anni"])
-    val = st.slider("Durata", 1, 24 if horizon=="Mesi" else 10, 6)
-    start = datetime.now() - timedelta(days=val*30 if horizon=="Mesi" else val*365)
-    
+
+# =========================================================
+# 2. ANALISI DCF
+# =========================================================
+elif choice == "Analisi DCF":
+    page_title("🧮  Discounted Cash Flow", "Stima il fair value di un'azienda tramite il modello DCF")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### Parametri di Input")
+        fcf = st.number_input("Free Cash Flow Attuale ($)", value=1_000_000_000, step=50_000_000, format="%d")
+        growth = st.slider("Tasso di Crescita (%)", min_value=1, max_value=50, value=10)
+        wacc = st.slider("WACC (%)", min_value=5, max_value=20, value=9)
+        terminal_growth = st.slider("Terminal Growth Rate (%)", min_value=0, max_value=5, value=2)
+        years = st.slider("Anni di Proiezione", min_value=3, max_value=15, value=10)
+        shares = st.number_input("Azioni in Circolazione", value=1_000_000_000, step=10_000_000, format="%d")
+
+    g = growth / 100
+    w = wacc / 100
+    tg = terminal_growth / 100
+
+    # DCF multi-year
+    cash_flows = []
+    pv_flows = []
+    for yr in range(1, years + 1):
+        cf = fcf * ((1 + g) ** yr)
+        pv = cf / ((1 + w) ** yr)
+        cash_flows.append(cf)
+        pv_flows.append(pv)
+
+    terminal_value = (cash_flows[-1] * (1 + tg)) / (w - tg) if w > tg else 0
+    pv_terminal = terminal_value / ((1 + w) ** years)
+    enterprise_value = sum(pv_flows) + pv_terminal
+    fair_value_per_share = enterprise_value / shares if shares > 0 else 0
+
+    with col2:
+        st.markdown("#### Risultati")
+        st.metric("Enterprise Value", f"${enterprise_value/1e9:,.2f}B")
+        st.metric("Fair Value per Azione", f"${fair_value_per_share:,.2f}")
+        st.metric("Terminal Value (PV)", f"${pv_terminal/1e9:,.2f}B")
+        st.metric("PV Cash Flows (operativi)", f"${sum(pv_flows)/1e9:,.2f}B")
+
+    st.markdown("---")
+    st.markdown("#### Proiezione Cash Flows")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[f"Anno {i+1}" for i in range(years)],
+        y=[v/1e6 for v in cash_flows],
+        name="FCF Proiettato",
+        marker_color='#4A9EFF',
+        opacity=0.8
+    ))
+    fig.add_trace(go.Bar(
+        x=[f"Anno {i+1}" for i in range(years)],
+        y=[v/1e6 for v in pv_flows],
+        name="PV dei Cash Flows",
+        marker_color='#2ECC71',
+        opacity=0.8
+    ))
+    fig.update_layout(**PLOTLY_LAYOUT, yaxis_title="$ Milioni", barmode='group', title="Cash Flow Proiettato vs Present Value")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# =========================================================
+# 3. MULTI-COMPARE
+# =========================================================
+elif choice == "Multi-Compare":
+    page_title("📊  Multi-Asset Comparison", "Confronto del rendimento percentuale normalizzato tra più ticker")
+
+    col1, col2, col3 = st.columns([3, 1, 1])
+    with col1:
+        tk_in = st.text_input("Ticker (separati da virgola)", "AAPL, MSFT, TSLA, NVDA")
+    with col2:
+        horizon = st.selectbox("Orizzonte", ["Mesi", "Anni"])
+    with col3:
+        val = st.slider("Durata", min_value=1, max_value=24 if horizon == "Mesi" else 10, value=12)
+
+    tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
+    start = datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)
+
     if tk_list:
-        data = yf.download(tk_list, start=start)['Close']
-        rets = ((data / data.iloc[0]) - 1) * 100
-        fig = go.Figure()
-        if isinstance(rets, pd.Series):
-            fig.add_trace(go.Scatter(x=rets.index, y=rets, name=tk_list[0]))
-        else:
-            for c in rets.columns:
-                fig.add_trace(go.Scatter(x=rets.index, y=rets[c], name=c))
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
-        st.plotly_chart(fig, use_container_width=True)
+        with st.spinner("Download dati..."):
+            try:
+                raw = yf.download(tk_list, start=start, auto_adjust=True, progress=False)
+                if isinstance(raw.columns, pd.MultiIndex):
+                    data = raw['Close']
+                else:
+                    data = raw[['Close']] if 'Close' in raw.columns else raw
 
-# --- 4. PORTFOLIO BACKTEST (STRATEGIA COMPOSTA) ---
-elif choice == "🧪 Portfolio Backtest":
-    st.title("Backtest: Strategia Composita")
-    st.write("Confronta un mix di asset (es: 60% Azioni, 40% Oro) contro il Benchmark.")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        assets_in = st.text_input("Asset (es: VOO, GLD)", "VOO, GLD")
-    with c2:
-        weights_in = st.text_input("Pesi % (es: 60, 40)", "60, 40")
-    
-    bench = st.selectbox("Seleziona Benchmark", ["^GSPC", "VWCE.DE"])
-    y = st.slider("Anni", 1, 15, 5)
-    start = datetime.now() - timedelta(days=365*y)
+                data = data.dropna(how='all')
+                rets = ((data / data.iloc[0]) - 1) * 100
 
-    a_list = [x.strip().upper() for x in assets_in.split(",")]
-    try:
-        w_list = [float(x.strip())/100 for x in weights_in.split(",")]
-        if len(a_list) == len(w_list):
-            data = yf.download(a_list + [bench], start=start)['Close']
-            norm = (data / data.iloc[0]) - 1
-            
-            # Calcolo Strategia
-            strat = (norm[a_list] * w_list).sum(axis=1)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=norm.index, y=strat*100, name="LA TUA STRATEGIA", line=dict(width=4, color="gold")))
-            fig.add_trace(go.Scatter(x=norm.index, y=norm[bench]*100, name=f"Benchmark ({bench})", line=dict(dash='dash', color='white')))
-            for a in a_list:
-                fig.add_trace(go.Scatter(x=norm.index, y=norm[a]*100, name=f"Solo {a}", line=dict(width=1, opacity=0.4)))
-            
-            fig.update_layout(yaxis_title="Rendimento %", template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.error("Errore: Il numero di asset e di pesi deve coincidere.")
-    except: st.warning("Inserisci i pesi correttamente (es: 50, 50)")
+                # Palette professionale
+                colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
+                          '#1ABC9C', '#E67E22', '#3498DB', '#EC407A', '#AB47BC']
 
-# --- 5. BLOOMBERG INSIGHTS ---
-elif choice == "⌨️ Bloomberg Insights":
-    st.title("Company Terminal Insights")
-    target = st.text_input("Ticker principale", "NVDA").upper()
-    if target:
-        try:
-            tk = yf.Ticker(target)
-            inf = tk.info
-            st.header(f"🏛️ {inf.get('longName', target)}")
-            
-            col_desc, col_news = st.columns([2, 1])
-            with col_desc:
-                st.subheader("Business Summary")
-                st.write(inf.get('longBusinessSummary', "N/A"))
-            with col_news:
-                st.subheader("Latest News")
-                for n in tk.news[:5]:
-                    st.markdown(f"- [{n['title']}]({n['link']})")
-            
-            st.divider()
-            st.subheader("📊 Fundamental Peer Analysis")
-            peers_in = st.text_input("Competitor", "AMD, INTC, AVGO")
-            p_list = [target] + [x.strip().upper() for x in peers_in.split(",")]
-            
-            rows = []
-            for p in p_list:
-                try:
-                    pi = yf.Ticker(p).info
-                    rows.append({
-                        "Ticker": p,
-                        "Price": pi.get('currentPrice', 0),
-                        "P/E": pi.get('forwardPE', 0),
-                        "Beta": pi.get('beta', 0),
-                        "P/B Ratio": pi.get('priceToBook', 0),
-                        "EPS": pi.get('forwardEps', 0),
-                        "Cap (B)": pi.get('marketCap', 0)/1e9,
-                        "Yield %": (pi.get('dividendYield', 0) or 0)*100
+                fig = go.Figure()
+                if isinstance(rets, pd.Series):
+                    fig.add_trace(go.Scatter(x=rets.index, y=rets.values, name=tk_list[0],
+                                             line=dict(width=2, color=colors[0])))
+                else:
+                    for idx, col in enumerate(rets.columns):
+                        fig.add_trace(go.Scatter(
+                            x=rets.index, y=rets[col],
+                            name=col,
+                            line=dict(width=2, color=colors[idx % len(colors)])
+                        ))
+
+                # Linea zero
+                fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+
+                fig.update_layout(
+                    **PLOTLY_LAYOUT,
+                    title="Rendimento % Normalizzato",
+                    yaxis_title="Rendimento (%)",
+                    xaxis_title=""
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Tabella riepilogativa
+                if not isinstance(rets, pd.Series):
+                    st.markdown("#### Riepilogo Rendimenti")
+                    summary = pd.DataFrame({
+                        "Rendimento Totale (%)": rets.iloc[-1].round(2),
+                        "Max (%)": rets.max().round(2),
+                        "Min (%)": rets.min().round(2),
                     })
-                except: continue
-            
-            st.table(pd.DataFrame(rows).set_index("Ticker"))
-            
-            st.divider()
-            st.subheader("⛓️ Sector Connections")
-            st.write(f"**Settore:** {inf.get('sector')} | **Industria:** {inf.get('industry')}")
-            st.info(f"L'azienda è strettamente collegata a {peers_in} tramite la supply chain del settore {inf.get('industry')}.")
-        except: st.error("Ticker non trovato.")
+                    st.dataframe(summary, use_container_width=True)
+            except Exception as e:
+                st.error(f"Errore nel download dei dati: {e}")
+
+
+# =========================================================
+# 4. PORTFOLIO BACKTEST
+# =========================================================
+elif choice == "Portfolio Backtest":
+    page_title("🧪  Portfolio Backtest", "Costruisci una strategia composita e confrontala con un benchmark")
+
+    st.markdown("---")
+    st.markdown("#### 1 · Composizione del Portafoglio")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        n_assets = st.slider("Numero di asset", min_value=2, max_value=8, value=3)
+
+    # Asset inputs
+    assets_defaults = ["VOO", "GLD", "TLT", "QQQ", "BND", "VNQ", "EEM", "PDBC"]
+    asset_list = []
+    weight_list = []
+
+    st.markdown("##### Ticker e Pesi")
+    cols_a = st.columns(n_assets)
+    for i in range(n_assets):
+        with cols_a[i]:
+            ticker = st.text_input(f"Asset {i+1}", value=assets_defaults[i] if i < len(assets_defaults) else "", key=f"asset_{i}")
+            asset_list.append(ticker.strip().upper())
+
+    cols_w = st.columns(n_assets)
+    default_weight = round(100 / n_assets)
+    for i in range(n_assets):
+        with cols_w[i]:
+            w = st.slider(f"Peso {asset_list[i] or f'Asset {i+1}'} (%)", min_value=0, max_value=100, value=default_weight, key=f"weight_{i}")
+            weight_list.append(w)
+
+    total_weight = sum(weight_list)
+    if total_weight != 100:
+        st.warning(f"⚠️  La somma dei pesi è {total_weight}% — deve essere esattamente 100%.")
+    else:
+        st.success(f"✅  Pesi bilanciati: {total_weight}%")
+
+    st.markdown("---")
+    st.markdown("#### 2 · Benchmark e Orizzonte")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        bench_options = {
+            "S&P 500 (^GSPC)": "^GSPC",
+            "MSCI World (VWCE.DE)": "VWCE.DE",
+            "Nasdaq 100 (^IXIC)": "^IXIC",
+            "60/40 Custom": None
+        }
+        bench_label = st.selectbox("Benchmark", list(bench_options.keys()))
+        bench = bench_options[bench_label]
+    with col4:
+        years = st.slider("Orizzonte temporale (anni)", min_value=1, max_value=20, value=5)
+
+    if bench is None:
+        bcol1, bcol2 = st.columns(2)
+        with bcol1:
+            bench_eq = st.text_input("Benchmark Equity Ticker", "SPY")
+        with bcol2:
+            bench_bond = st.text_input("Benchmark Bond Ticker", "AGG")
+
+    run = st.button("▶  Esegui Backtest", use_container_width=True)
+
+    if run and total_weight == 100:
+        valid_assets = [a for a in asset_list if a]
+        w_norm = [weight_list[i] / 100 for i, a in enumerate(asset_list) if a]
+
+        start = datetime.now() - timedelta(days=365 * years)
+
+        if bench:
+            tickers_to_dl = valid_assets + [bench]
+        else:
+            tickers_to_dl = valid_assets + [bench_eq.upper(), bench_bond.upper()]
+
+        with st.spinner("Download dati storici..."):
+            try:
+                raw = yf.download(tickers_to_dl, start=start, auto_adjust=True, progress=False)
+                if isinstance(raw.columns, pd.MultiIndex):
+                    data = raw['Close']
+                else:
+                    data = raw
+
+                data = data.dropna(how='all').fillna(method='ffill')
+                norm = (data / data.iloc[0]) - 1
+
+                # Strategia composita
+                strat_df = pd.DataFrame(index=norm.index)
+                for i, a in enumerate(valid_assets):
+                    if a in norm.columns:
+                        strat_df[a] = norm[a] * w_norm[i]
+                    elif a == norm.name if isinstance(norm, pd.Series) else False:
+                        strat_df[a] = norm * w_norm[i]
+                strategy = strat_df.sum(axis=1)
+
+                # Benchmark composito 60/40 se custom
+                if bench is None:
+                    bench_series = norm[bench_eq.upper()] * 0.6 + norm[bench_bond.upper()] * 0.4
+                    bench_name = f"60% {bench_eq.upper()} + 40% {bench_bond.upper()}"
+                    bench_col = None
+                else:
+                    bench_col = bench
+                    bench_name = bench_label
+
+                # ---- GRAFICO PRINCIPALE ----
+                fig = go.Figure()
+
+                # Strategia
+                fig.add_trace(go.Scatter(
+                    x=strategy.index, y=strategy * 100,
+                    name="📐 La Tua Strategia",
+                    line=dict(width=3, color="#4A9EFF"),
+                    fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'
+                ))
+
+                # Benchmark
+                if bench_col and bench_col in norm.columns:
+                    fig.add_trace(go.Scatter(
+                        x=norm.index, y=norm[bench_col] * 100,
+                        name=f"📌 {bench_name}",
+                        line=dict(width=2, dash='dash', color='#FFFFFF'),
+                    ))
+                elif bench is None:
+                    fig.add_trace(go.Scatter(
+                        x=bench_series.index, y=bench_series * 100,
+                        name=f"📌 {bench_name}",
+                        line=dict(width=2, dash='dash', color='#FFFFFF'),
+                    ))
+
+                # Singoli asset (sottili)
+                asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
+                for idx, a in enumerate(valid_assets):
+                    if a in norm.columns:
+                        fig.add_trace(go.Scatter(
+                            x=norm.index, y=norm[a] * 100,
+                            name=f"  {a} ({weight_list[idx]}%)",
+                            line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
+                            opacity=0.5
+                        ))
+
+                fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+                fig.update_layout(
+                    **PLOTLY_LAYOUT,
+                    title="Rendimento Cumulativo (%)",
+                    yaxis_title="Rendimento (%)",
+                    height=480
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # ---- STATISTICHE ----
+                st.markdown("#### Statistiche di Performance")
+                s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+
+                total_ret = strategy.iloc[-1] * 100
+                annual_ret = ((1 + strategy.iloc[-1]) ** (1 / years) - 1) * 100
+                daily_rets = strategy.diff().dropna()
+                vol = daily_rets.std() * (252 ** 0.5) * 100
+                sharpe = (annual_ret / vol) if vol > 0 else 0
+                drawdown = ((strategy + 1) / (strategy + 1).cummax() - 1).min() * 100
+
+                s_col1.metric("Rendimento Totale", f"{total_ret:+.2f}%")
+                s_col2.metric("CAGR (annualizzato)", f"{annual_ret:+.2f}%")
+                s_col3.metric("Volatilità Annua", f"{vol:.2f}%")
+                s_col4.metric("Max Drawdown", f"{drawdown:.2f}%")
+
+                st.metric("Sharpe Ratio (approx)", f"{sharpe:.2f}")
+
+                # ---- BENCHMARK COMPARISON ----
+                if bench_col and bench_col in norm.columns:
+                    bench_total = norm[bench_col].iloc[-1] * 100
+                    delta_vs_bench = total_ret - bench_total
+                    st.metric(f"Alpha vs {bench_name}", f"{delta_vs_bench:+.2f}%",
+                              delta=f"{'Sovraperforma' if delta_vs_bench > 0 else 'Sottoperforma'}")
+
+            except Exception as e:
+                st.error(f"Errore durante il backtest: {e}")
+
+    elif run and total_weight != 100:
+        st.error("Correggi i pesi prima di eseguire il backtest (devono sommare a 100%).")
+
+
+# =========================================================
+# 5. BLOOMBERG INSIGHTS
+# =========================================================
+elif choice == "Bloomberg Insights":
+    page_title("⌨️  Company Terminal Insights", "Analisi fondamentale, notizie e peer comparison")
+
+    target = st.text_input("Ticker principale", "NVDA", placeholder="Es: AAPL, MSFT, MC.PA...")
+    target = target.strip().upper()
+
+    if target:
+        with st.spinner(f"Recupero dati per {target}..."):
+            try:
+                tk = yf.Ticker(target)
+                inf = tk.info
+
+                # Verifica che il ticker esista davvero
+                # yfinance restituisce info parziale anche per ticker errati
+                company_name = inf.get('longName') or inf.get('shortName') or inf.get('symbol')
+                current_price = inf.get('currentPrice') or inf.get('regularMarketPrice') or inf.get('previousClose')
+
+                if not company_name and not current_price:
+                    raise ValueError("Ticker non trovato nei database di mercato.")
+
+                display_name = company_name if company_name else target
+
+                # ---- HEADER ----
+                st.markdown(f"""
+                    <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:8px;
+                                padding:1.2rem 1.5rem; margin-bottom:1.5rem;'>
+                        <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
+                                    color:#4A9EFF; letter-spacing:0.2em; margin-bottom:4px;'>EQUITY</div>
+                        <div style='font-size:1.6rem; font-weight:700; color:#FFFFFF;'>{display_name}</div>
+                        <div style='font-family: IBM Plex Mono, monospace; font-size:0.85rem;
+                                    color:#A8BDD4; margin-top:4px;'>
+                            {target} · {inf.get('exchange', 'N/A')} · {inf.get('currency', 'N/A')}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # ---- KPI RAPIDI ----
+                k1, k2, k3, k4, k5 = st.columns(5)
+                k1.metric("Prezzo", f"{current_price:,.2f}" if current_price else "N/A")
+                k2.metric("P/E Forward", f"{inf.get('forwardPE', 'N/A'):.1f}" if inf.get('forwardPE') else "N/A")
+                k3.metric("EPS Forward", f"{inf.get('forwardEps', 'N/A'):.2f}" if inf.get('forwardEps') else "N/A")
+                k4.metric("Beta", f"{inf.get('beta', 'N/A'):.2f}" if inf.get('beta') else "N/A")
+                k5.metric("Market Cap", f"${inf.get('marketCap', 0)/1e9:.1f}B" if inf.get('marketCap') else "N/A")
+
+                st.markdown("---")
+
+                # ---- DESCRIZIONE + NEWS ----
+                col_desc, col_news = st.columns([2, 1])
+                with col_desc:
+                    st.markdown("#### Business Summary")
+                    summary = inf.get('longBusinessSummary', '')
+                    if summary:
+                        st.write(summary)
+                    else:
+                        st.info("Descrizione non disponibile per questo ticker.")
+
+                with col_news:
+                    st.markdown("#### Latest News")
+                    try:
+                        news_items = tk.news
+                        if news_items:
+                            for n in news_items[:5]:
+                                title = n.get('title', 'No title')
+                                link = n.get('link', '#')
+                                st.markdown(f"→ [{title}]({link})")
+                        else:
+                            st.info("Nessuna news disponibile.")
+                    except:
+                        st.info("News non disponibili.")
+
+                st.markdown("---")
+
+                # ---- PEER ANALYSIS ----
+                st.markdown("#### Fundamental Peer Analysis")
+                peers_in = st.text_input("Competitors (separati da virgola)", "AMD, INTC, AVGO")
+                p_list = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
+
+                with st.spinner("Caricamento dati peers..."):
+                    rows = []
+                    for p in p_list:
+                        try:
+                            pi = yf.Ticker(p).info
+                            price_p = pi.get('currentPrice') or pi.get('regularMarketPrice') or pi.get('previousClose') or 0
+                            rows.append({
+                                "Ticker": p,
+                                "Price": f"{price_p:,.2f}" if price_p else "N/A",
+                                "P/E Fwd": f"{pi.get('forwardPE'):.1f}" if pi.get('forwardPE') else "N/A",
+                                "EPS Fwd": f"{pi.get('forwardEps'):.2f}" if pi.get('forwardEps') else "N/A",
+                                "Beta": f"{pi.get('beta'):.2f}" if pi.get('beta') else "N/A",
+                                "P/B": f"{pi.get('priceToBook'):.1f}" if pi.get('priceToBook') else "N/A",
+                                "Cap (B$)": f"{pi.get('marketCap',0)/1e9:.1f}" if pi.get('marketCap') else "N/A",
+                                "Div Yield": f"{(pi.get('dividendYield') or 0)*100:.2f}%" ,
+                                "52W High": f"{pi.get('fiftyTwoWeekHigh'):.2f}" if pi.get('fiftyTwoWeekHigh') else "N/A",
+                            })
+                        except:
+                            rows.append({"Ticker": p, "Price": "ERR", "P/E Fwd": "—", "EPS Fwd": "—",
+                                         "Beta": "—", "P/B": "—", "Cap (B$)": "—", "Div Yield": "—", "52W High": "—"})
+
+                    if rows:
+                        df_peers = pd.DataFrame(rows).set_index("Ticker")
+                        st.dataframe(df_peers, use_container_width=True)
+
+                st.markdown("---")
+
+                # ---- SECTOR INFO ----
+                st.markdown("#### Sector & Industry")
+                sector = inf.get('sector', 'N/A')
+                industry = inf.get('industry', 'N/A')
+                country = inf.get('country', 'N/A')
+                exchange = inf.get('exchange', 'N/A')
+
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                sc1.metric("Settore", sector)
+                sc2.metric("Industria", industry)
+                sc3.metric("Paese", country)
+                sc4.metric("Exchange", exchange)
+
+            except ValueError as ve:
+                st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo (es: per titoli europei usa .MI, .PA, .DE)")
+                st.markdown("""
+                    **Esempi di formato corretto:**
+                    - USA: `AAPL`, `MSFT`, `NVDA`
+                    - Italia: `ENI.MI`, `ENEL.MI`
+                    - Francia: `MC.PA`, `TTE.PA`
+                    - Germania: `SAP.DE`, `BMW.DE`
+                    - ETF: `VWCE.DE`, `SWDA.MI`
+                """)
+            except Exception as e:
+                st.error(f"❌  Errore nel recupero dati per **{target}**: {str(e)}")
+                st.markdown("Verifica la connessione o prova con un ticker diverso.")
