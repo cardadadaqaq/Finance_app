@@ -40,25 +40,31 @@ st.sidebar.title("💎 FINLENS TERMINAL")
 menu = ["🌍 Market Overview", "🧮 Analisi DCF", "📊 Multi-Compare", "🧪 Backtesting Lab", "⌨️ Terminal Insights"]
 choice = st.sidebar.selectbox("Navigazione", menu)
 
-# --- 1. MARKET OVERVIEW (FIXED) ---
+# --- 1. MARKET OVERVIEW (20+ ASSETS) ---
 if choice == "🌍 Market Overview":
-    st.title("Market Overview - Global Indices")
+    st.title("Market Overview - Global Pulse")
+    
     indices = {
-        "S&P 500 (USA)": "^GSPC", "Nasdaq 100": "^IXIC",
-        "Nikkei 225 (JPN)": "^N225", "Hang Seng (HK)": "^HSI",
-        "DAX 40 (GER)": "^GDAXI", "FTSE MIB (ITA)": "FTSEMIB.MI"
+        "S&P 500": "^GSPC", "Nasdaq 100": "^IXIC", "Dow Jones": "^DJI",
+        "Nikkei 225": "^N225", "Hang Seng": "^HSI", "Shanghai": "000001.SS",
+        "DAX 40": "^GDAXI", "FTSE MIB": "FTSEMIB.MI", "CAC 40": "^FCHI",
+        "Euro Stoxx 50": "^STOXX50E", "IBEX 35": "^IBEX", "FTSE 100": "^FTSE",
+        "KOSPI (S.Korea)": "^KS11", "ASX 200 (AUS)": "^AXJO", "Bitcoin": "BTC-USD",
+        "Apple": "AAPL", "Nvidia": "NVDA", "Tesla": "TSLA", 
+        "Microsoft": "MSFT", "Amazon": "AMZN", "Meta": "META"
     }
+    
     cols = st.columns(3)
     for i, (name, ticker) in enumerate(indices.items()):
         try:
             data = yf.download(ticker, period="2d", progress=False)
-            if len(data) >= 2:
-                close = data['Close'].iloc[-1].item()
-                prev = data['Close'].iloc[-2].item()
-                delta = ((close - prev) / prev) * 100
-                cols[i % 3].metric(name, f"{close:,.2f}", f"{delta:+.2f}%", delta_color="off")
+            if not data.empty:
+                c = float(data['Close'].iloc[-1])
+                p = float(data['Close'].iloc[-2])
+                d = ((c - p) / p) * 100
+                cols[i % 3].metric(name, f"{c:,.2f}", f"{d:+.2f}%", delta_color="off")
         except:
-            cols[i % 3].metric(name, "N/D", "0%", delta_color="off")
+            cols[i % 3].metric(name, "N/D", "0.00%", delta_color="off")
 
 # --- 2. ANALISI DCF ---
 elif choice == "🧮 Analisi DCF":
@@ -66,41 +72,45 @@ elif choice == "🧮 Analisi DCF":
     ticker_dcf = st.text_input("Inserisci Ticker (es. AAPL)", "").upper()
     if ticker_dcf:
         stock = yf.Ticker(ticker_dcf)
-        fcf = st.number_input("Free Cash Flow ($)", value=float(stock.info.get('freeCashflow', 0)))
-        col1, col2 = st.columns(2)
-        with col1: growth = st.slider("Crescita (%)", 1, 50, 10) / 100
-        with col2: wacc = st.slider("WACC (%)", 5, 20, 10) / 100
+        fcf_val = stock.info.get('freeCashflow', 0)
+        fcf = st.number_input("Free Cash Flow ($)", value=float(fcf_val) if fcf_val else 0.0)
+        c1, c2 = st.columns(2)
+        with c1: growth = st.slider("Crescita (%)", 1, 50, 10) / 100
+        with c2: wacc = st.slider("WACC (%)", 5, 20, 10) / 100
         
         if fcf > 0:
             valore = sum([fcf * (1+growth)**i / (1+wacc)**i for i in range(1,6)]) + (fcf*(1+growth)**5 * 1.02 / (wacc-0.02)) / (1+wacc)**5
             st.metric("Fair Value Stimato", f"${valore:,.0f}", delta_color="off")
+        else: st.warning("Dati FCF non disponibili. Inseriscili manualmente.")
 
-# --- 3. MULTI-COMPARE ---
+# --- 3. MULTI-COMPARE (PERCENTUALE) ---
 elif choice == "📊 Multi-Compare":
     st.title("Confronto Custom Aziende")
     input_tickers = st.text_input("Tickers (es. AAPL, TSLA)", "AAPL, MSFT").upper()
     c1, c2 = st.columns(2)
-    y = c1.number_input("Anni", 0, 20, 1)
-    m = c2.number_input("Mesi", 0, 11, 0)
+    y, m = c1.number_input("Anni", 0, 20, 1), c2.number_input("Mesi", 0, 11, 0)
     
     list_t = [x.strip() for x in input_tickers.split(",") if x.strip()]
     if list_t:
         data = yf.download(list_t, start=get_start_date(y, m))['Close']
-        st.line_chart((data / data.iloc[0]) * 100)
+        pct_change = ((data / data.iloc[0]) - 1) * 100
+        st.subheader("Ritorno Percentuale Cumulativo (%)")
+        st.line_chart(pct_change)
 
-# --- 4. BACKTESTING LAB ---
+# --- 4. BACKTESTING LAB (PERCENTUALE + BENCHMARK) ---
 elif choice == "🧪 Backtesting Lab":
     st.title("Simulatore Backtesting vs Index")
     assets_in = st.text_input("Asset (es: QQQ, BTC-USD)", "QQQ").upper()
-    benchmark = st.text_input("Indice di Confronto (es: ^GSPC, ^IXIC)", "^GSPC").upper()
+    benchmark = st.text_input("Indice Benchmark (es: ^GSPC)", "^GSPC").upper()
     c1, c2 = st.columns(2)
-    y = c1.number_input("Anni", 0, 30, 5)
-    m = c2.number_input("Mesi", 0, 11, 0)
+    y, m = c1.number_input("Anni", 0, 30, 5), c2.number_input("Mesi", 0, 11, 0)
     
-    all_tickers = [x.strip() for x in assets_in.split(",") if x.strip()] + [benchmark]
-    if all_tickers:
-        data = yf.download(all_tickers, start=get_start_date(y, m))['Close']
-        st.line_chart((data / data.iloc[0]) * 100)
+    all_t = [x.strip() for x in assets_in.split(",") if x.strip()] + [benchmark]
+    if all_t:
+        data = yf.download(all_t, start=get_start_date(y, m))['Close']
+        pct_change = ((data / data.iloc[0]) - 1) * 100
+        st.subheader("Rendimento Storico Relativo (%)")
+        st.line_chart(pct_change)
 
 # --- 5. TERMINAL INSIGHTS ---
 elif choice == "⌨️ Terminal Insights":
@@ -110,16 +120,10 @@ elif choice == "⌨️ Terminal Insights":
         stock = yf.Ticker(target)
         info = stock.info
         st.header(f"COMPANY PROFILE: {info.get('longName', target)}")
-        
-        # Descrizione Bloomberg Style
-        st.subheader("Business Summary")
-        st.write(info.get('longBusinessSummary', "Nessuna descrizione disponibile."))
+        st.write(info.get('longBusinessSummary', "Descrizione non disponibile."))
         
         st.divider()
-        st.subheader("Global Connections & Peer Analysis")
-        st.write(f"L'azienda opera nel settore **{info.get('sector')}** ({info.get('industry')}) con sede in **{info.get('country')}**.")
-        
-        peers_in = st.text_input("Competitor Globali", "MSFT, GOOGL, SAM.DE, 0700.HK").upper()
+        peers_in = st.text_input("Competitor Globali", "MSFT, GOOGL, NVDA").upper()
         peer_list = [target] + [x.strip() for x in peers_in.split(",") if x.strip()]
         
         peer_data = []
@@ -127,9 +131,11 @@ elif choice == "⌨️ Terminal Insights":
             try:
                 p_tick = yf.Ticker(p).info
                 peer_data.append({
-                    "Ticker": p, "Name": p_tick.get('shortName'),
+                    "Ticker": p,
                     "Country": p_tick.get('country'),
-                    "P/E": p_tick.get('forwardPE'), "Market Cap (B)": p_tick.get('marketCap', 0)/1e9
+                    "P/E (Fwd)": round(p_tick.get('forwardPE', 0), 2),
+                    "Price/Sales": round(p_tick.get('priceToSalesTrailing12Months', 0), 2),
+                    "Market Cap (B)": round(p_tick.get('marketCap', 0)/1e9, 2)
                 })
             except: pass
         st.table(pd.DataFrame(peer_data).set_index("Ticker"))
