@@ -755,7 +755,7 @@ elif choice == "Bloomberg Insights":
 
                 st.markdown("---")
 
-                # ---- SECTOR INFO ----
+              # ---- SECTOR INFO ----
                 st.markdown("#### Sector & Industry")
                 sector = inf.get('sector', 'N/A')
                 industry = inf.get('industry', 'N/A')
@@ -768,16 +768,124 @@ elif choice == "Bloomberg Insights":
                 sc3.metric("Paese", country)
                 sc4.metric("Exchange", exchange)
 
-            except ValueError as ve:
-                st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo (es: per titoli europei usa .MI, .PA, .DE)")
-                st.markdown("""
-                    **Esempi di formato corretto:**
-                    - USA: `AAPL`, `MSFT`, `NVDA`
-                    - Italia: `ENI.MI`, `ENEL.MI`
-                    - Francia: `MC.PA`, `TTE.PA`
-                    - Germania: `SAP.DE`, `BMW.DE`
-                    - ETF: `VWCE.DE`, `SWDA.MI`
-                """)
-            except Exception as e:
-                st.error(f"❌  Errore nel recupero dati per **{target}**: {str(e)}")
-                st.markdown("Verifica la connessione o prova con un ticker diverso.")
+                st.markdown("---")
+
+                # ---- SUPPLY CHAIN & CONNESSIONI ----
+                st.markdown("#### Supply Chain & Ecosystem")
+
+                # Mappa statica settore → fornitori / clienti / competitor noti
+                SUPPLY_CHAIN_MAP = {
+                    "Technology": {
+                        "suppliers": ["Taiwan Semiconductor (TSM)", "Samsung Electronics", "ASML (ASML.AS)", "Applied Materials (AMAT)", "Lam Research (LRCX)"],
+                        "customers": ["Apple (AAPL)", "Microsoft (MSFT)", "Meta (META)", "Amazon AWS (AMZN)", "Alphabet (GOOGL)"],
+                        "notes": "La supply chain tech è dominata dai foundry asiatici per la produzione di chip e dai big tech USA come clienti finali."
+                    },
+                    "Consumer Electronics": {
+                        "suppliers": ["Foxconn (2317.TW)", "Qualcomm (QCOM)", "Corning (GLW)", "Murata Manufacturing"],
+                        "customers": ["Retailer globali", "Operatori telecom", "Consumatori B2C"],
+                        "notes": "Fortemente dipendente da componentistica asiatica e da cicli di upgrade dei consumatori."
+                    },
+                    "Semiconductors": {
+                        "suppliers": ["ASML (ASML.AS)", "Applied Materials (AMAT)", "Air Products (APD)", "Shin-Etsu Chemical"],
+                        "customers": ["Apple (AAPL)", "Nvidia (NVDA)", "AMD", "Qualcomm (QCOM)", "Data center hyperscalers"],
+                        "notes": "Settore capital-intensive con altissime barriere d'ingresso. I fornitori di litografia (ASML) sono monopolisti."
+                    },
+                    "Communication Services": {
+                        "suppliers": ["Meta Platforms infra", "Ericsson (ERIC)", "Nokia (NOK)", "Akamai (AKAM)"],
+                        "customers": ["Advertiser B2B", "Consumatori B2C", "PMI globali"],
+                        "notes": "I ricavi dipendono prevalentemente dalla pubblicità digitale e dagli abbonamenti."
+                    },
+                    "Financial Services": {
+                        "suppliers": ["Bloomberg LP", "Refinitiv/LSEG", "Broadridge (BR)", "Fiserv (FISV)"],
+                        "customers": ["Retail banking clienti", "Investitori istituzionali", "Aziende corporate"],
+                        "notes": "Il settore si affida a fornitori di dati e infrastrutture IT finanziarie specializzate."
+                    },
+                    "Healthcare": {
+                        "suppliers": ["Thermo Fisher (TMO)", "Danaher (DHR)", "Lonza Group", "Wuxi Biologics"],
+                        "customers": ["Ospedali", "Assicurazioni sanitarie", "Governi", "Distributori farmaceutici"],
+                        "notes": "Pipeline R&D lunga e costosa; i CDMO (contract manufacturers) sono fornitori critici."
+                    },
+                    "Energy": {
+                        "suppliers": ["Halliburton (HAL)", "Baker Hughes (BKR)", "SLB (SLB)", "Caterpillar (CAT)"],
+                        "customers": ["Utility elettriche", "Raffinerie", "Industria chimica", "Governi"],
+                        "notes": "Ciclico, fortemente legato al prezzo del petrolio e alle politiche energetiche governative."
+                    },
+                    "Industrials": {
+                        "suppliers": ["3M (MMM)", "Honeywell (HON)", "Parker Hannifin (PH)", "Eaton (ETN)"],
+                        "customers": ["Settore aerospaziale", "Automotive", "Costruzioni", "Difesa"],
+                        "notes": "Ampio spettro B2B; molto sensibile al ciclo economico e agli ordini governativi."
+                    },
+                    "Consumer Defensive": {
+                        "suppliers": ["Archer-Daniels (ADM)", "Bunge (BG)", "Packaging Corp (PKG)", "International Flavors (IFF)"],
+                        "customers": ["Grande distribuzione (WMT, COST)", "Consumatori finali B2C"],
+                        "notes": "Settore anticiclico con pricing power nei brand premium. Margini sotto pressione per inflazione input."
+                    },
+                    "Consumer Cyclical": {
+                        "suppliers": ["Li & Fung", "Produttori asiatici OEM", "Fornitori materie prime"],
+                        "customers": ["Consumatori finali", "E-commerce", "Retail fisico"],
+                        "notes": "Fortemente correlato al ciclo del credito al consumo e alla fiducia dei consumatori."
+                    },
+                    "Real Estate": {
+                        "suppliers": ["Costruttori", "Gestori immobiliari", "Società di property management"],
+                        "customers": ["Tenant retail", "Tenant uffici", "Residenziale"],
+                        "notes": "Sensibile ai tassi d'interesse. I REIT distribuiscono almeno il 90% degli utili come dividendi."
+                    },
+                    "Utilities": {
+                        "suppliers": ["GE Vernova (GEV)", "Siemens Energy", "NextEra (NEE)", "Fuel suppliers"],
+                        "customers": ["Residenziale", "Industria", "Data center (crescita forte)"],
+                        "notes": "Settore regolato, cash flow stabile. Crescente domanda da AI/data center è un catalizzatore."
+                    },
+                    "Basic Materials": {
+                        "suppliers": ["Minatori di materie prime", "Produttori chimici di base"],
+                        "customers": ["Manifatturiero", "Costruzioni", "Automotive", "Farmaceutico"],
+                        "notes": "Altamente ciclico, dipendente da domanda cinese e prezzi delle commodity."
+                    },
+                }
+
+                sc_data = SUPPLY_CHAIN_MAP.get(sector, None)
+
+                if sc_data:
+                    chain_col1, chain_col2 = st.columns(2)
+
+                    with chain_col1:
+                        st.markdown("##### 🔼 Da chi acquista (Fornitori chiave)")
+                        for s in sc_data["suppliers"]:
+                            st.markdown(f"- {s}")
+
+                    with chain_col2:
+                        st.markdown("##### 🔽 A chi vende (Clienti / Sbocchi)")
+                        for c in sc_data["customers"]:
+                            st.markdown(f"- {c}")
+
+                    st.info(f"💡 {sc_data['notes']}")
+                else:
+                    st.markdown(f"**Settore:** {sector} | **Industria:** {industry}")
+                    st.info(f"Mappa supply chain non disponibile per il settore '{sector}'. Prova a consultare i report IR dell'azienda.")
+
+                # ---- CHART: PRICE vs PEERS (ultimi 12 mesi) ----
+                st.markdown("---")
+                st.markdown("#### Andamento relativo vs Peers (12 mesi)")
+                peer_tickers = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
+                try:
+                    peer_raw = yf.download(peer_tickers, period="1y", auto_adjust=True, progress=False)
+                    if isinstance(peer_raw.columns, pd.MultiIndex):
+                        peer_data = peer_raw['Close']
+                    else:
+                        peer_data = peer_raw
+                    peer_norm = ((peer_data / peer_data.iloc[0]) - 1) * 100
+                    peer_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C']
+                    fig_peer = go.Figure()
+                    cols_p = peer_norm.columns if hasattr(peer_norm, 'columns') else [target]
+                    for idx, col in enumerate(cols_p):
+                        fig_peer.add_trace(go.Scatter(
+                            x=peer_norm.index, y=peer_norm[col],
+                            name=col,
+                            line=dict(width=2.5 if col == target else 1.5,
+                                      color=peer_colors[idx % len(peer_colors)])
+                        ))
+                    fig_peer.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+                    fig_peer.update_layout(**PLOTLY_LAYOUT, yaxis_title="Rendimento % (norm.)", height=360,
+                                           title=f"Performance relativa: {target} vs peers (1 anno)")
+                    st.plotly_chart(fig_peer, use_container_width=True)
+                except Exception:
+                    st.info("Grafico peers non disponibile.")
