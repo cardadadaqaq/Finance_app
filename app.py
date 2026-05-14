@@ -4,56 +4,30 @@ import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# =========================================================
-# 🔑 CONFIGURAZIONE
-# =========================================================
 st.set_page_config(page_title="Navy Terminal Pro", layout="wide", initial_sidebar_state="expanded")
 
-# =========================================================
-# GLOBAL CSS — Navy professionale, tutto bianco, no arancione
-# =========================================================
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap');
 
-    /* ---- BASE ---- */
     html, body, .stApp, [data-testid="stAppViewContainer"], .main {
         background-color: #0A1628 !important;
         font-family: 'IBM Plex Sans', sans-serif !important;
     }
-
-    /* ---- SIDEBAR ---- */
     [data-testid="stSidebar"] {
         background-color: #060E1E !important;
         border-right: 1px solid #1E3A5F !important;
     }
-    [data-testid="stSidebar"] * {
-        color: #FFFFFF !important;
-    }
+    [data-testid="stSidebar"] * { color: #FFFFFF !important; }
     [data-testid="stSidebar"] .stSelectbox > div > div {
         background-color: #0D1F38 !important;
         border: 1px solid #1E3A5F !important;
         color: #FFFFFF !important;
     }
-
-    /* Sidebar title */
-    [data-testid="stSidebar"] h1 {
-        font-family: 'IBM Plex Mono', monospace !important;
-        font-size: 1.1rem !important;
-        letter-spacing: 0.15em !important;
-        color: #FFFFFF !important;
-        border-bottom: 1px solid #1E3A5F;
-        padding-bottom: 0.75rem;
-        margin-bottom: 1.2rem;
-    }
-
-    /* ---- HEADER ---- */
     [data-testid="stHeader"] {
         background-color: #060E1E !important;
         border-bottom: 1px solid #1E3A5F !important;
     }
-
-    /* ---- TESTI ---- */
     h1, h2, h3, h4, h5, h6 {
         color: #FFFFFF !important;
         font-family: 'IBM Plex Sans', sans-serif !important;
@@ -64,8 +38,6 @@ st.markdown("""
         color: #E8EDF5 !important;
         font-family: 'IBM Plex Sans', sans-serif !important;
     }
-
-    /* ---- PAGE TITLE custom ---- */
     .page-title {
         font-family: 'IBM Plex Mono', monospace !important;
         font-size: 1.6rem;
@@ -76,8 +48,6 @@ st.markdown("""
         padding-left: 1rem;
         margin-bottom: 1.8rem;
     }
-
-    /* ---- METRICHE ---- */
     [data-testid="stMetricValue"] {
         color: #FFFFFF !important;
         font-family: 'IBM Plex Mono', monospace !important;
@@ -96,23 +66,14 @@ st.markdown("""
         border-radius: 6px !important;
         padding: 0.8rem 1rem !important;
     }
-
-    /* ---- INPUT & WIDGET LABELS → BIANCO, no arancione ---- */
-    .stTextInput label,
-    .stSelectbox label,
-    .stMultiSelect label,
-    .stSlider label,
-    .stNumberInput label,
-    .stRadio label,
-    label[data-testid] {
+    .stTextInput label, .stSelectbox label, .stMultiSelect label,
+    .stSlider label, .stNumberInput label, .stRadio label, label[data-testid] {
         color: #FFFFFF !important;
         font-size: 0.85rem !important;
         font-weight: 600 !important;
         letter-spacing: 0.04em !important;
         text-transform: uppercase !important;
     }
-
-    /* Slider: thumb e track → bianco/blu, no arancione */
     .stSlider [data-baseweb="slider"] [role="slider"] {
         background-color: #4A9EFF !important;
         border-color: #4A9EFF !important;
@@ -121,16 +82,10 @@ st.markdown("""
         color: #FFFFFF !important;
         background-color: #4A9EFF !important;
     }
-    /* Track riempita */
     .stSlider [data-baseweb="slider"] div[class*="Track"] div:first-child {
         background-color: #4A9EFF !important;
     }
-    /* Valori min/max slider */
-    .stSlider span {
-        color: #A8BDD4 !important;
-    }
-
-    /* number_input frecce e bordo */
+    .stSlider span { color: #A8BDD4 !important; }
     .stNumberInput input {
         background-color: #0D1F38 !important;
         color: #FFFFFF !important;
@@ -142,8 +97,6 @@ st.markdown("""
         color: #FFFFFF !important;
         border: none !important;
     }
-
-    /* ---- INPUTS TESTO ---- */
     input[type="text"], textarea, .stTextInput input {
         background-color: #0D1F38 !important;
         color: #FFFFFF !important;
@@ -155,8 +108,6 @@ st.markdown("""
         border-color: #4A9EFF !important;
         box-shadow: 0 0 0 1px #4A9EFF !important;
     }
-
-    /* ---- SELECT BOX ---- */
     .stSelectbox [data-baseweb="select"] > div {
         background-color: #0D1F38 !important;
         border: 1px solid #1E3A5F !important;
@@ -170,11 +121,7 @@ st.markdown("""
         background-color: #0D1F38 !important;
         color: #FFFFFF !important;
     }
-    [data-baseweb="option"]:hover {
-        background-color: #1E3A5F !important;
-    }
-
-    /* ---- TABELLE ---- */
+    [data-baseweb="option"]:hover { background-color: #1E3A5F !important; }
     .dataframe, table {
         background-color: #0D1F38 !important;
         color: #FFFFFF !important;
@@ -195,23 +142,13 @@ st.markdown("""
         border-bottom: 1px solid #111E33 !important;
         padding: 0.5rem 1rem !important;
     }
-    tbody tr:hover td {
-        background-color: #1E3A5F !important;
-    }
-
-    /* ---- DIVIDER ---- */
-    hr {
-        border-color: #1E3A5F !important;
-    }
-
-    /* ---- ALERT/INFO ---- */
+    tbody tr:hover td { background-color: #1E3A5F !important; }
+    hr { border-color: #1E3A5F !important; }
     .stAlert, .stInfo, [data-testid="stNotification"] {
         background-color: #0D1F38 !important;
         border: 1px solid #1E3A5F !important;
         color: #E8EDF5 !important;
     }
-
-    /* ---- BUTTONS ---- */
     .stButton > button {
         background-color: #1E3A5F !important;
         color: #FFFFFF !important;
@@ -226,8 +163,6 @@ st.markdown("""
         background-color: #4A9EFF !important;
         color: #000 !important;
     }
-
-    /* ---- SCROLLBAR ---- */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #060E1E; }
     ::-webkit-scrollbar-thumb { background: #1E3A5F; border-radius: 3px; }
@@ -237,7 +172,7 @@ st.markdown("""
 
 
 # =========================================================
-# SIDEBAR — Navbar professionale
+# SIDEBAR
 # =========================================================
 with st.sidebar:
     st.markdown("""
@@ -263,15 +198,6 @@ with st.sidebar:
         st.session_state.page = "Global Overview"
 
     for icon, label in menu_items:
-        is_active = st.session_state.page == label
-        btn_style = f"""
-            <style>
-            div[data-testid='stButton'] button[title='{label}'] {{
-                background-color: {'#1E3A5F' if is_active else 'transparent'} !important;
-                border-left: 3px solid {'#4A9EFF' if is_active else 'transparent'} !important;
-            }}
-            </style>
-        """
         if st.button(f"{icon}  {label}", key=label, use_container_width=True):
             st.session_state.page = label
 
@@ -291,10 +217,10 @@ choice = st.session_state.page
 # UTILITY
 # =========================================================
 def page_title(text, subtitle=""):
-    st.markdown(f"""
-        <div class='page-title'>{text}</div>
-        {'<p style="color:#A8BDD4; font-size:0.88rem; margin-top:-1rem; margin-bottom:1.5rem;">'+subtitle+'</p>' if subtitle else ''}
-    """, unsafe_allow_html=True)
+    sub_html = (f'<p style="color:#A8BDD4; font-size:0.88rem; margin-top:-1rem; '
+                f'margin-bottom:1.5rem;">{subtitle}</p>') if subtitle else ""
+    st.markdown(f"<div class='page-title'>{text}</div>{sub_html}", unsafe_allow_html=True)
+
 
 PLOTLY_LAYOUT = dict(
     template="plotly_dark",
@@ -307,6 +233,78 @@ PLOTLY_LAYOUT = dict(
     margin=dict(l=40, r=20, t=40, b=40),
     hovermode="x unified",
 )
+
+SUPPLY_CHAIN_MAP = {
+    "Technology": {
+        "suppliers": ["Taiwan Semiconductor (TSM)", "Samsung Electronics", "ASML (ASML.AS)",
+                      "Applied Materials (AMAT)", "Lam Research (LRCX)"],
+        "customers": ["Apple (AAPL)", "Microsoft (MSFT)", "Meta (META)",
+                      "Amazon AWS (AMZN)", "Alphabet (GOOGL)"],
+        "notes": "La supply chain tech è dominata dai foundry asiatici per la produzione di chip e dai big tech USA come clienti finali."
+    },
+    "Consumer Electronics": {
+        "suppliers": ["Foxconn (2317.TW)", "Qualcomm (QCOM)", "Corning (GLW)", "Murata Manufacturing"],
+        "customers": ["Retailer globali", "Operatori telecom", "Consumatori B2C"],
+        "notes": "Fortemente dipendente da componentistica asiatica e da cicli di upgrade dei consumatori."
+    },
+    "Semiconductors": {
+        "suppliers": ["ASML (ASML.AS)", "Applied Materials (AMAT)",
+                      "Air Products (APD)", "Shin-Etsu Chemical"],
+        "customers": ["Apple (AAPL)", "Nvidia (NVDA)", "AMD",
+                      "Qualcomm (QCOM)", "Data center hyperscalers"],
+        "notes": "Settore capital-intensive con altissime barriere d'ingresso. I fornitori di litografia (ASML) sono monopolisti de facto."
+    },
+    "Communication Services": {
+        "suppliers": ["Ericsson (ERIC)", "Nokia (NOK)", "Akamai (AKAM)", "Infrastrutture cloud"],
+        "customers": ["Advertiser B2B", "Consumatori B2C", "PMI globali"],
+        "notes": "I ricavi dipendono prevalentemente dalla pubblicità digitale e dagli abbonamenti."
+    },
+    "Financial Services": {
+        "suppliers": ["Bloomberg LP", "Refinitiv/LSEG", "Broadridge (BR)", "Fiserv (FISV)"],
+        "customers": ["Retail banking clienti", "Investitori istituzionali", "Aziende corporate"],
+        "notes": "Il settore si affida a fornitori di dati e infrastrutture IT finanziarie specializzate."
+    },
+    "Healthcare": {
+        "suppliers": ["Thermo Fisher (TMO)", "Danaher (DHR)", "Lonza Group", "Wuxi Biologics"],
+        "customers": ["Ospedali", "Assicurazioni sanitarie", "Governi", "Distributori farmaceutici"],
+        "notes": "Pipeline R&D lunga e costosa; i CDMO (contract manufacturers) sono fornitori critici."
+    },
+    "Energy": {
+        "suppliers": ["Halliburton (HAL)", "Baker Hughes (BKR)", "SLB (SLB)", "Caterpillar (CAT)"],
+        "customers": ["Utility elettriche", "Raffinerie", "Industria chimica", "Governi"],
+        "notes": "Ciclico, fortemente legato al prezzo del petrolio e alle politiche energetiche governative."
+    },
+    "Industrials": {
+        "suppliers": ["3M (MMM)", "Honeywell (HON)", "Parker Hannifin (PH)", "Eaton (ETN)"],
+        "customers": ["Settore aerospaziale", "Automotive", "Costruzioni", "Difesa"],
+        "notes": "Ampio spettro B2B; molto sensibile al ciclo economico e agli ordini governativi."
+    },
+    "Consumer Defensive": {
+        "suppliers": ["Archer-Daniels (ADM)", "Bunge (BG)", "Packaging Corp (PKG)", "IFF (IFF)"],
+        "customers": ["Grande distribuzione (WMT, COST)", "Consumatori finali B2C"],
+        "notes": "Settore anticiclico con pricing power nei brand premium. Margini sotto pressione per inflazione input."
+    },
+    "Consumer Cyclical": {
+        "suppliers": ["Li & Fung", "Produttori asiatici OEM", "Fornitori materie prime"],
+        "customers": ["Consumatori finali", "E-commerce", "Retail fisico"],
+        "notes": "Fortemente correlato al ciclo del credito al consumo e alla fiducia dei consumatori."
+    },
+    "Real Estate": {
+        "suppliers": ["Costruttori", "Gestori immobiliari", "Società di property management"],
+        "customers": ["Tenant retail", "Tenant uffici", "Residenziale"],
+        "notes": "Sensibile ai tassi d'interesse. I REIT distribuiscono almeno il 90% degli utili come dividendi."
+    },
+    "Utilities": {
+        "suppliers": ["GE Vernova (GEV)", "Siemens Energy", "NextEra (NEE)", "Fuel suppliers"],
+        "customers": ["Residenziale", "Industria", "Data center (domanda in forte crescita)"],
+        "notes": "Settore regolato, cash flow stabile. La crescente domanda da AI/data center è un catalizzatore strutturale."
+    },
+    "Basic Materials": {
+        "suppliers": ["Minatori di materie prime", "Produttori chimici di base"],
+        "customers": ["Manifatturiero", "Costruzioni", "Automotive", "Farmaceutico"],
+        "notes": "Altamente ciclico, dipendente da domanda cinese e prezzi delle commodity globali."
+    },
+}
 
 
 # =========================================================
@@ -332,7 +330,7 @@ if choice == "Global Overview":
                     c, p = d['Close'].iloc[-1], d['Close'].iloc[-2]
                     pct = ((c - p) / p) * 100
                     cols[i % 4].metric(name, f"{c:,.2f}", f"{pct:+.2f}%")
-            except:
+            except Exception:
                 cols[i % 4].metric(name, "N/A", "—")
 
 
@@ -357,7 +355,6 @@ elif choice == "Analisi DCF":
     w = wacc / 100
     tg = terminal_growth / 100
 
-    # DCF multi-year
     cash_flows = []
     pv_flows = []
     for yr in range(1, years + 1):
@@ -395,7 +392,8 @@ elif choice == "Analisi DCF":
         marker_color='#2ECC71',
         opacity=0.8
     ))
-    fig.update_layout(**PLOTLY_LAYOUT, yaxis_title="$ Milioni", barmode='group', title="Cash Flow Proiettato vs Present Value")
+    fig.update_layout(**PLOTLY_LAYOUT, yaxis_title="$ Milioni", barmode='group',
+                      title="Cash Flow Proiettato vs Present Value")
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -428,7 +426,6 @@ elif choice == "Multi-Compare":
                 data = data.dropna(how='all')
                 rets = ((data / data.iloc[0]) - 1) * 100
 
-                # Palette professionale
                 colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
                           '#1ABC9C', '#E67E22', '#3498DB', '#EC407A', '#AB47BC']
 
@@ -444,18 +441,11 @@ elif choice == "Multi-Compare":
                             line=dict(width=2, color=colors[idx % len(colors)])
                         ))
 
-                # Linea zero
                 fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-
-                fig.update_layout(
-                    **PLOTLY_LAYOUT,
-                    title="Rendimento % Normalizzato",
-                    yaxis_title="Rendimento (%)",
-                    xaxis_title=""
-                )
+                fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento % Normalizzato",
+                                  yaxis_title="Rendimento (%)", xaxis_title="")
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Tabella riepilogativa
                 if not isinstance(rets, pd.Series):
                     st.markdown("#### Riepilogo Rendimenti")
                     summary = pd.DataFrame({
@@ -477,27 +467,31 @@ elif choice == "Portfolio Backtest":
     st.markdown("---")
     st.markdown("#### 1 · Composizione del Portafoglio")
 
-    col1, col2 = st.columns([1, 2])
+    col1, _ = st.columns([1, 2])
     with col1:
         n_assets = st.slider("Numero di asset", min_value=2, max_value=8, value=3)
 
-    # Asset inputs
     assets_defaults = ["VOO", "GLD", "TLT", "QQQ", "BND", "VNQ", "EEM", "PDBC"]
     asset_list = []
     weight_list = []
 
-    st.markdown("##### Ticker e Pesi")
+    st.markdown("##### Ticker")
     cols_a = st.columns(n_assets)
     for i in range(n_assets):
         with cols_a[i]:
-            ticker = st.text_input(f"Asset {i+1}", value=assets_defaults[i] if i < len(assets_defaults) else "", key=f"asset_{i}")
+            ticker = st.text_input(f"Asset {i+1}",
+                                   value=assets_defaults[i] if i < len(assets_defaults) else "",
+                                   key=f"asset_{i}")
             asset_list.append(ticker.strip().upper())
 
+    st.markdown("##### Pesi (%)")
     cols_w = st.columns(n_assets)
     default_weight = round(100 / n_assets)
     for i in range(n_assets):
         with cols_w[i]:
-            w = st.slider(f"Peso {asset_list[i] or f'Asset {i+1}'} (%)", min_value=0, max_value=100, value=default_weight, key=f"weight_{i}")
+            w = st.slider(f"{asset_list[i] or f'Asset {i+1}'}",
+                          min_value=0, max_value=100,
+                          value=default_weight, key=f"weight_{i}")
             weight_list.append(w)
 
     total_weight = sum(weight_list)
@@ -522,6 +516,8 @@ elif choice == "Portfolio Backtest":
     with col4:
         years = st.slider("Orizzonte temporale (anni)", min_value=1, max_value=20, value=5)
 
+    bench_eq = "SPY"
+    bench_bond = "AGG"
     if bench is None:
         bcol1, bcol2 = st.columns(2)
         with bcol1:
@@ -534,13 +530,9 @@ elif choice == "Portfolio Backtest":
     if run and total_weight == 100:
         valid_assets = [a for a in asset_list if a]
         w_norm = [weight_list[i] / 100 for i, a in enumerate(asset_list) if a]
-
         start = datetime.now() - timedelta(days=365 * years)
 
-        if bench:
-            tickers_to_dl = valid_assets + [bench]
-        else:
-            tickers_to_dl = valid_assets + [bench_eq.upper(), bench_bond.upper()]
+        tickers_to_dl = valid_assets + ([bench] if bench else [bench_eq.upper(), bench_bond.upper()])
 
         with st.spinner("Download dati storici..."):
             try:
@@ -550,19 +542,15 @@ elif choice == "Portfolio Backtest":
                 else:
                     data = raw
 
-                data = data.dropna(how='all').fillna(method='ffill')
+                data = data.dropna(how='all').ffill()
                 norm = (data / data.iloc[0]) - 1
 
-                # Strategia composita
                 strat_df = pd.DataFrame(index=norm.index)
                 for i, a in enumerate(valid_assets):
                     if a in norm.columns:
                         strat_df[a] = norm[a] * w_norm[i]
-                    elif a == norm.name if isinstance(norm, pd.Series) else False:
-                        strat_df[a] = norm * w_norm[i]
                 strategy = strat_df.sum(axis=1)
 
-                # Benchmark composito 60/40 se custom
                 if bench is None:
                     bench_series = norm[bench_eq.upper()] * 0.6 + norm[bench_bond.upper()] * 0.4
                     bench_name = f"60% {bench_eq.upper()} + 40% {bench_bond.upper()}"
@@ -571,10 +559,7 @@ elif choice == "Portfolio Backtest":
                     bench_col = bench
                     bench_name = bench_label
 
-                # ---- GRAFICO PRINCIPALE ----
                 fig = go.Figure()
-
-                # Strategia
                 fig.add_trace(go.Scatter(
                     x=strategy.index, y=strategy * 100,
                     name="📐 La Tua Strategia",
@@ -582,7 +567,6 @@ elif choice == "Portfolio Backtest":
                     fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'
                 ))
 
-                # Benchmark
                 if bench_col and bench_col in norm.columns:
                     fig.add_trace(go.Scatter(
                         x=norm.index, y=norm[bench_col] * 100,
@@ -596,8 +580,8 @@ elif choice == "Portfolio Backtest":
                         line=dict(width=2, dash='dash', color='#FFFFFF'),
                     ))
 
-                # Singoli asset (sottili)
-                asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
+                asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
+                                '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
                 for idx, a in enumerate(valid_assets):
                     if a in norm.columns:
                         fig.add_trace(go.Scatter(
@@ -608,18 +592,12 @@ elif choice == "Portfolio Backtest":
                         ))
 
                 fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                fig.update_layout(
-                    **PLOTLY_LAYOUT,
-                    title="Rendimento Cumulativo (%)",
-                    yaxis_title="Rendimento (%)",
-                    height=480
-                )
+                fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento Cumulativo (%)",
+                                  yaxis_title="Rendimento (%)", height=480)
                 st.plotly_chart(fig, use_container_width=True)
 
-                # ---- STATISTICHE ----
                 st.markdown("#### Statistiche di Performance")
-                s_col1, s_col2, s_col3, s_col4 = st.columns(4)
-
+                s1, s2, s3, s4 = st.columns(4)
                 total_ret = strategy.iloc[-1] * 100
                 annual_ret = ((1 + strategy.iloc[-1]) ** (1 / years) - 1) * 100
                 daily_rets = strategy.diff().dropna()
@@ -627,19 +605,17 @@ elif choice == "Portfolio Backtest":
                 sharpe = (annual_ret / vol) if vol > 0 else 0
                 drawdown = ((strategy + 1) / (strategy + 1).cummax() - 1).min() * 100
 
-                s_col1.metric("Rendimento Totale", f"{total_ret:+.2f}%")
-                s_col2.metric("CAGR (annualizzato)", f"{annual_ret:+.2f}%")
-                s_col3.metric("Volatilità Annua", f"{vol:.2f}%")
-                s_col4.metric("Max Drawdown", f"{drawdown:.2f}%")
-
+                s1.metric("Rendimento Totale", f"{total_ret:+.2f}%")
+                s2.metric("CAGR (annualizzato)", f"{annual_ret:+.2f}%")
+                s3.metric("Volatilità Annua", f"{vol:.2f}%")
+                s4.metric("Max Drawdown", f"{drawdown:.2f}%")
                 st.metric("Sharpe Ratio (approx)", f"{sharpe:.2f}")
 
-                # ---- BENCHMARK COMPARISON ----
                 if bench_col and bench_col in norm.columns:
                     bench_total = norm[bench_col].iloc[-1] * 100
                     delta_vs_bench = total_ret - bench_total
                     st.metric(f"Alpha vs {bench_name}", f"{delta_vs_bench:+.2f}%",
-                              delta=f"{'Sovraperforma' if delta_vs_bench > 0 else 'Sottoperforma'}")
+                              delta="Sovraperforma" if delta_vs_bench > 0 else "Sottoperforma")
 
             except Exception as e:
                 st.error(f"Errore durante il backtest: {e}")
@@ -652,10 +628,10 @@ elif choice == "Portfolio Backtest":
 # 5. BLOOMBERG INSIGHTS
 # =========================================================
 elif choice == "Bloomberg Insights":
-    page_title("⌨️  Company Terminal Insights", "Analisi fondamentale, notizie e peer comparison")
+    page_title("⌨️  Company Terminal Insights", "Analisi fondamentale, notizie, supply chain e peer comparison")
 
-    target = st.text_input("Ticker principale", "NVDA", placeholder="Es: AAPL, MSFT, MC.PA...")
-    target = target.strip().upper()
+    target = st.text_input("Ticker principale", "NVDA",
+                           placeholder="Es: AAPL, MSFT, MC.PA, ENI.MI ...").strip().upper()
 
     if target:
         with st.spinner(f"Recupero dati per {target}..."):
@@ -663,17 +639,16 @@ elif choice == "Bloomberg Insights":
                 tk = yf.Ticker(target)
                 inf = tk.info
 
-                # Verifica che il ticker esista davvero
-                # yfinance restituisce info parziale anche per ticker errati
                 company_name = inf.get('longName') or inf.get('shortName') or inf.get('symbol')
-                current_price = inf.get('currentPrice') or inf.get('regularMarketPrice') or inf.get('previousClose')
+                current_price = (inf.get('currentPrice') or inf.get('regularMarketPrice')
+                                 or inf.get('previousClose'))
 
                 if not company_name and not current_price:
-                    raise ValueError("Ticker non trovato nei database di mercato.")
+                    raise ValueError("Ticker non trovato.")
 
                 display_name = company_name if company_name else target
 
-                # ---- HEADER ----
+                # HEADER
                 st.markdown(f"""
                     <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:8px;
                                 padding:1.2rem 1.5rem; margin-bottom:1.5rem;'>
@@ -687,25 +662,22 @@ elif choice == "Bloomberg Insights":
                     </div>
                 """, unsafe_allow_html=True)
 
-                # ---- KPI RAPIDI ----
+                # KPI
                 k1, k2, k3, k4, k5 = st.columns(5)
                 k1.metric("Prezzo", f"{current_price:,.2f}" if current_price else "N/A")
-                k2.metric("P/E Forward", f"{inf.get('forwardPE', 'N/A'):.1f}" if inf.get('forwardPE') else "N/A")
-                k3.metric("EPS Forward", f"{inf.get('forwardEps', 'N/A'):.2f}" if inf.get('forwardEps') else "N/A")
-                k4.metric("Beta", f"{inf.get('beta', 'N/A'):.2f}" if inf.get('beta') else "N/A")
+                k2.metric("P/E Forward", f"{inf.get('forwardPE'):.1f}" if inf.get('forwardPE') else "N/A")
+                k3.metric("EPS Forward", f"{inf.get('forwardEps'):.2f}" if inf.get('forwardEps') else "N/A")
+                k4.metric("Beta", f"{inf.get('beta'):.2f}" if inf.get('beta') else "N/A")
                 k5.metric("Market Cap", f"${inf.get('marketCap', 0)/1e9:.1f}B" if inf.get('marketCap') else "N/A")
 
                 st.markdown("---")
 
-                # ---- DESCRIZIONE + NEWS ----
+                # DESCRIZIONE + NEWS
                 col_desc, col_news = st.columns([2, 1])
                 with col_desc:
                     st.markdown("#### Business Summary")
                     summary = inf.get('longBusinessSummary', '')
-                    if summary:
-                        st.write(summary)
-                    else:
-                        st.info("Descrizione non disponibile per questo ticker.")
+                    st.write(summary if summary else "Descrizione non disponibile per questo ticker.")
 
                 with col_news:
                     st.markdown("#### Latest News")
@@ -713,17 +685,15 @@ elif choice == "Bloomberg Insights":
                         news_items = tk.news
                         if news_items:
                             for n in news_items[:5]:
-                                title = n.get('title', 'No title')
-                                link = n.get('link', '#')
-                                st.markdown(f"→ [{title}]({link})")
+                                st.markdown(f"→ [{n.get('title', 'No title')}]({n.get('link', '#')})")
                         else:
                             st.info("Nessuna news disponibile.")
-                    except:
+                    except Exception:
                         st.info("News non disponibili.")
 
                 st.markdown("---")
 
-                # ---- PEER ANALYSIS ----
+                # PEER ANALYSIS
                 st.markdown("#### Fundamental Peer Analysis")
                 peers_in = st.text_input("Competitors (separati da virgola)", "AMD, INTC, AVGO")
                 p_list = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
@@ -733,7 +703,8 @@ elif choice == "Bloomberg Insights":
                     for p in p_list:
                         try:
                             pi = yf.Ticker(p).info
-                            price_p = pi.get('currentPrice') or pi.get('regularMarketPrice') or pi.get('previousClose') or 0
+                            price_p = (pi.get('currentPrice') or pi.get('regularMarketPrice')
+                                       or pi.get('previousClose') or 0)
                             rows.append({
                                 "Ticker": p,
                                 "Price": f"{price_p:,.2f}" if price_p else "N/A",
@@ -742,150 +713,104 @@ elif choice == "Bloomberg Insights":
                                 "Beta": f"{pi.get('beta'):.2f}" if pi.get('beta') else "N/A",
                                 "P/B": f"{pi.get('priceToBook'):.1f}" if pi.get('priceToBook') else "N/A",
                                 "Cap (B$)": f"{pi.get('marketCap',0)/1e9:.1f}" if pi.get('marketCap') else "N/A",
-                                "Div Yield": f"{(pi.get('dividendYield') or 0)*100:.2f}%" ,
+                                "Div Yield": f"{(pi.get('dividendYield') or 0)*100:.2f}%",
                                 "52W High": f"{pi.get('fiftyTwoWeekHigh'):.2f}" if pi.get('fiftyTwoWeekHigh') else "N/A",
                             })
-                        except:
-                            rows.append({"Ticker": p, "Price": "ERR", "P/E Fwd": "—", "EPS Fwd": "—",
-                                         "Beta": "—", "P/B": "—", "Cap (B$)": "—", "Div Yield": "—", "52W High": "—"})
+                        except Exception:
+                            rows.append({"Ticker": p, "Price": "ERR", "P/E Fwd": "—",
+                                         "EPS Fwd": "—", "Beta": "—", "P/B": "—",
+                                         "Cap (B$)": "—", "Div Yield": "—", "52W High": "—"})
 
                     if rows:
-                        df_peers = pd.DataFrame(rows).set_index("Ticker")
-                        st.dataframe(df_peers, use_container_width=True)
+                        st.dataframe(pd.DataFrame(rows).set_index("Ticker"), use_container_width=True)
 
                 st.markdown("---")
 
-              # ---- SECTOR INFO ----
+                # SECTOR INFO
                 st.markdown("#### Sector & Industry")
                 sector = inf.get('sector', 'N/A')
                 industry = inf.get('industry', 'N/A')
                 country = inf.get('country', 'N/A')
-                exchange = inf.get('exchange', 'N/A')
+                exchange_name = inf.get('exchange', 'N/A')
 
                 sc1, sc2, sc3, sc4 = st.columns(4)
                 sc1.metric("Settore", sector)
                 sc2.metric("Industria", industry)
                 sc3.metric("Paese", country)
-                sc4.metric("Exchange", exchange)
+                sc4.metric("Exchange", exchange_name)
 
                 st.markdown("---")
 
-                # ---- SUPPLY CHAIN & CONNESSIONI ----
+                # SUPPLY CHAIN
                 st.markdown("#### Supply Chain & Ecosystem")
-
-                # Mappa statica settore → fornitori / clienti / competitor noti
-                SUPPLY_CHAIN_MAP = {
-                    "Technology": {
-                        "suppliers": ["Taiwan Semiconductor (TSM)", "Samsung Electronics", "ASML (ASML.AS)", "Applied Materials (AMAT)", "Lam Research (LRCX)"],
-                        "customers": ["Apple (AAPL)", "Microsoft (MSFT)", "Meta (META)", "Amazon AWS (AMZN)", "Alphabet (GOOGL)"],
-                        "notes": "La supply chain tech è dominata dai foundry asiatici per la produzione di chip e dai big tech USA come clienti finali."
-                    },
-                    "Consumer Electronics": {
-                        "suppliers": ["Foxconn (2317.TW)", "Qualcomm (QCOM)", "Corning (GLW)", "Murata Manufacturing"],
-                        "customers": ["Retailer globali", "Operatori telecom", "Consumatori B2C"],
-                        "notes": "Fortemente dipendente da componentistica asiatica e da cicli di upgrade dei consumatori."
-                    },
-                    "Semiconductors": {
-                        "suppliers": ["ASML (ASML.AS)", "Applied Materials (AMAT)", "Air Products (APD)", "Shin-Etsu Chemical"],
-                        "customers": ["Apple (AAPL)", "Nvidia (NVDA)", "AMD", "Qualcomm (QCOM)", "Data center hyperscalers"],
-                        "notes": "Settore capital-intensive con altissime barriere d'ingresso. I fornitori di litografia (ASML) sono monopolisti."
-                    },
-                    "Communication Services": {
-                        "suppliers": ["Meta Platforms infra", "Ericsson (ERIC)", "Nokia (NOK)", "Akamai (AKAM)"],
-                        "customers": ["Advertiser B2B", "Consumatori B2C", "PMI globali"],
-                        "notes": "I ricavi dipendono prevalentemente dalla pubblicità digitale e dagli abbonamenti."
-                    },
-                    "Financial Services": {
-                        "suppliers": ["Bloomberg LP", "Refinitiv/LSEG", "Broadridge (BR)", "Fiserv (FISV)"],
-                        "customers": ["Retail banking clienti", "Investitori istituzionali", "Aziende corporate"],
-                        "notes": "Il settore si affida a fornitori di dati e infrastrutture IT finanziarie specializzate."
-                    },
-                    "Healthcare": {
-                        "suppliers": ["Thermo Fisher (TMO)", "Danaher (DHR)", "Lonza Group", "Wuxi Biologics"],
-                        "customers": ["Ospedali", "Assicurazioni sanitarie", "Governi", "Distributori farmaceutici"],
-                        "notes": "Pipeline R&D lunga e costosa; i CDMO (contract manufacturers) sono fornitori critici."
-                    },
-                    "Energy": {
-                        "suppliers": ["Halliburton (HAL)", "Baker Hughes (BKR)", "SLB (SLB)", "Caterpillar (CAT)"],
-                        "customers": ["Utility elettriche", "Raffinerie", "Industria chimica", "Governi"],
-                        "notes": "Ciclico, fortemente legato al prezzo del petrolio e alle politiche energetiche governative."
-                    },
-                    "Industrials": {
-                        "suppliers": ["3M (MMM)", "Honeywell (HON)", "Parker Hannifin (PH)", "Eaton (ETN)"],
-                        "customers": ["Settore aerospaziale", "Automotive", "Costruzioni", "Difesa"],
-                        "notes": "Ampio spettro B2B; molto sensibile al ciclo economico e agli ordini governativi."
-                    },
-                    "Consumer Defensive": {
-                        "suppliers": ["Archer-Daniels (ADM)", "Bunge (BG)", "Packaging Corp (PKG)", "International Flavors (IFF)"],
-                        "customers": ["Grande distribuzione (WMT, COST)", "Consumatori finali B2C"],
-                        "notes": "Settore anticiclico con pricing power nei brand premium. Margini sotto pressione per inflazione input."
-                    },
-                    "Consumer Cyclical": {
-                        "suppliers": ["Li & Fung", "Produttori asiatici OEM", "Fornitori materie prime"],
-                        "customers": ["Consumatori finali", "E-commerce", "Retail fisico"],
-                        "notes": "Fortemente correlato al ciclo del credito al consumo e alla fiducia dei consumatori."
-                    },
-                    "Real Estate": {
-                        "suppliers": ["Costruttori", "Gestori immobiliari", "Società di property management"],
-                        "customers": ["Tenant retail", "Tenant uffici", "Residenziale"],
-                        "notes": "Sensibile ai tassi d'interesse. I REIT distribuiscono almeno il 90% degli utili come dividendi."
-                    },
-                    "Utilities": {
-                        "suppliers": ["GE Vernova (GEV)", "Siemens Energy", "NextEra (NEE)", "Fuel suppliers"],
-                        "customers": ["Residenziale", "Industria", "Data center (crescita forte)"],
-                        "notes": "Settore regolato, cash flow stabile. Crescente domanda da AI/data center è un catalizzatore."
-                    },
-                    "Basic Materials": {
-                        "suppliers": ["Minatori di materie prime", "Produttori chimici di base"],
-                        "customers": ["Manifatturiero", "Costruzioni", "Automotive", "Farmaceutico"],
-                        "notes": "Altamente ciclico, dipendente da domanda cinese e prezzi delle commodity."
-                    },
-                }
-
                 sc_data = SUPPLY_CHAIN_MAP.get(sector, None)
 
                 if sc_data:
                     chain_col1, chain_col2 = st.columns(2)
-
                     with chain_col1:
-                        st.markdown("##### 🔼 Da chi acquista (Fornitori chiave)")
+                        st.markdown("##### 🔼 Da chi acquista — Fornitori chiave")
                         for s in sc_data["suppliers"]:
                             st.markdown(f"- {s}")
-
                     with chain_col2:
-                        st.markdown("##### 🔽 A chi vende (Clienti / Sbocchi)")
+                        st.markdown("##### 🔽 A chi vende — Clienti / Sbocchi")
                         for c in sc_data["customers"]:
                             st.markdown(f"- {c}")
-
                     st.info(f"💡 {sc_data['notes']}")
                 else:
                     st.markdown(f"**Settore:** {sector} | **Industria:** {industry}")
-                    st.info(f"Mappa supply chain non disponibile per il settore '{sector}'. Prova a consultare i report IR dell'azienda.")
+                    st.info(f"Mappa supply chain non disponibile per il settore '{sector}'.")
 
-                # ---- CHART: PRICE vs PEERS (ultimi 12 mesi) ----
                 st.markdown("---")
+
+                # GRAFICO PEERS 12 MESI
                 st.markdown("#### Andamento relativo vs Peers (12 mesi)")
                 peer_tickers = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
+
                 try:
                     peer_raw = yf.download(peer_tickers, period="1y", auto_adjust=True, progress=False)
                     if isinstance(peer_raw.columns, pd.MultiIndex):
                         peer_data = peer_raw['Close']
                     else:
                         peer_data = peer_raw
+
                     peer_norm = ((peer_data / peer_data.iloc[0]) - 1) * 100
                     peer_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C']
+
                     fig_peer = go.Figure()
-                    cols_p = peer_norm.columns if hasattr(peer_norm, 'columns') else [target]
-                    for idx, col in enumerate(cols_p):
+                    peer_cols = peer_norm.columns if hasattr(peer_norm, 'columns') else [target]
+                    for idx, col in enumerate(peer_cols):
                         fig_peer.add_trace(go.Scatter(
-                            x=peer_norm.index, y=peer_norm[col],
+                            x=peer_norm.index,
+                            y=peer_norm[col],
                             name=col,
-                            line=dict(width=2.5 if col == target else 1.5,
-                                      color=peer_colors[idx % len(peer_colors)])
+                            line=dict(
+                                width=2.5 if col == target else 1.5,
+                                color=peer_colors[idx % len(peer_colors)]
+                            )
                         ))
+
                     fig_peer.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                    fig_peer.update_layout(**PLOTLY_LAYOUT, yaxis_title="Rendimento % (norm.)", height=360,
-                                           title=f"Performance relativa: {target} vs peers (1 anno)")
+                    fig_peer.update_layout(
+                        **PLOTLY_LAYOUT,
+                        yaxis_title="Rendimento % (norm.)",
+                        height=380,
+                        title=f"Performance relativa: {target} vs peers (1 anno)"
+                    )
                     st.plotly_chart(fig_peer, use_container_width=True)
+
                 except Exception:
                     st.info("Grafico peers non disponibile.")
+
+            except ValueError:
+                st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo.")
+                st.markdown("""
+                    **Esempi di formato corretto:**
+                    - USA: `AAPL`, `MSFT`, `NVDA`
+                    - Italia: `ENI.MI`, `ENEL.MI`
+                    - Francia: `MC.PA`, `TTE.PA`
+                    - Germania: `SAP.DE`, `BMW.DE`
+                    - ETF: `VWCE.DE`, `SWDA.MI`
+                """)
+            except Exception as e:
+                st.error(f"❌  Errore nel recupero dati per **{target}**: {str(e)}")
+                st.markdown("Verifica la connessione o prova con un ticker diverso.")
