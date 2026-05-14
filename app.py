@@ -15,28 +15,33 @@ st.set_page_config(page_title="Navy Terminal Pro", layout="wide")
 st.markdown("""
     <style>
     /* Sfondo principale e Sidebar */
-    .stApp, [data-testid="stSidebar"], .main {
+    .stApp, [data-testid="stSidebar"], [data-testid="stHeader"], .main {
         background-color: #000080 !important;
     }
-    /* Testi globali */
-    h1, h2, h3, p, span, label, .stMarkdown {
+    /* Testi globali e scritte bianche lucenti */
+    h1, h2, h3, p, span, label, li, .stMarkdown {
+        color: #FFFFFF !important;
+        font-family: 'Helvetica', sans-serif;
+    }
+    /* Forza il bianco sui titoli dei grafici e widget */
+    .stSelectbox label, .stTextInput label, .stSlider label, .stMultiSelect label {
         color: #FFFFFF !important;
     }
     /* Metriche */
     [data-testid="stMetricValue"] { color: #FFFFFF !important; font-weight: bold; }
-    [data-testid="stMetricLabel"] { color: #E0E0E0 !important; }
-    /* Input e Selectbox */
-    .stSelectbox div, .stTextInput input, .stNumberInput input {
+    [data-testid="stMetricLabel"] { color: #F0F0F0 !important; }
+    /* Input Fields */
+    input {
         background-color: #000066 !important;
         color: white !important;
-        border: 1px solid #FFFFFF !important;
     }
     /* Tabelle */
-    .styled-table, .dataframe, [data-testid="stTable"] {
+    .dataframe, [data-testid="stTable"], table {
         background-color: #000066 !important;
         color: white !important;
     }
-    hr { border-top: 1px solid white !important; }
+    thead tr th { color: white !important; background-color: #000044 !important; }
+    tbody tr td { color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -67,8 +72,10 @@ if choice == "🌍 Global Overview":
 elif choice == "🧮 Analisi DCF":
     st.title("Valutazione Discounted Cash Flow")
     fcf = st.number_input("Free Cash Flow Attuale ($)", value=1000000000)
+    growth = st.slider("Crescita %", 1, 50, 10) / 100
     wacc = st.slider("WACC %", 5, 20, 9) / 100
-    st.metric("Fair Value", f"${(fcf*1.1)/(wacc-0.02):,.2f}")
+    fair_value = (fcf * (1 + growth)) / (wacc - 0.02)
+    st.metric("Fair Value", f"${fair_value:,.2f}")
 
 # --- 3. MULTI-COMPARE ---
 elif choice == "📊 Multi-Compare":
@@ -83,27 +90,46 @@ elif choice == "📊 Multi-Compare":
         data = yf.download(tk_list, start=start)['Close']
         rets = ((data / data.iloc[0]) - 1) * 100
         fig = go.Figure()
-        for c in (rets.columns if isinstance(rets, pd.DataFrame) else [tk_list[0]]):
-            fig.add_trace(go.Scatter(x=rets.index, y=rets[c] if isinstance(rets, pd.DataFrame) else rets, name=c))
-        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+        if isinstance(rets, pd.Series):
+            fig.add_trace(go.Scatter(x=rets.index, y=rets, name=tk_list[0]))
+        else:
+            for c in rets.columns:
+                fig.add_trace(go.Scatter(x=rets.index, y=rets[c], name=c))
+        fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
         st.plotly_chart(fig, use_container_width=True)
 
 # --- 4. PORTFOLIO BACKTEST (STRATEGIA COMPOSTA) ---
 elif choice == "🧪 Portfolio Backtest":
-    st.title("Backtest: Strategia vs Singoli Asset")
-    st.write("Crea una strategia pesata (es: 60% VOO, 40% GLD)")
+    st.title("Backtest: Strategia Composita")
+    st.write("Confronta un mix di asset (es: 60% Azioni, 40% Oro) contro il Benchmark.")
     
-    col_a, col_w = st.columns([3, 2])
-    with col_a:
-        assets_in = st.text_input("Asset (es: VOO, GLD, BTC-USD)", "VOO, GLD")
-    with col_w:
+    c1, c2 = st.columns(2)
+    with c1:
+        assets_in = st.text_input("Asset (es: VOO, GLD)", "VOO, GLD")
+    with c2:
         weights_in = st.text_input("Pesi % (es: 60, 40)", "60, 40")
     
-    benchmark = st.selectbox("Benchmark di confronto", ["^GSPC", "VWCE.DE"])
-    years = st.slider("Anni", 1, 15, 5)
-    start = datetime.now() - timedelta(days=365*years)
+    bench = st.selectbox("Seleziona Benchmark", ["^GSPC", "VWCE.DE"])
+    y = st.slider("Anni", 1, 15, 5)
+    start = datetime.now() - timedelta(days=365*y)
 
     a_list = [x.strip().upper() for x in assets_in.split(",")]
-    w_list = [float(x.strip())/100 for x in weights_in.split(",")]
-
-    if len(a_list) == len
+    try:
+        w_list = [float(x.strip())/100 for x in weights_in.split(",")]
+        if len(a_list) == len(w_list):
+            data = yf.download(a_list + [bench], start=start)['Close']
+            norm = (data / data.iloc[0]) - 1
+            
+            # Calcolo Strategia
+            strat = (norm[a_list] * w_list).sum(axis=1)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=norm.index, y=strat*100, name="LA TUA STRATEGIA", line=dict(width=4, color="gold")))
+            fig.add_trace(go.Scatter(x=norm.index, y=norm[bench]*100, name=f"Benchmark ({bench})", line=dict(dash='dash', color='white')))
+            for a in a_list:
+                fig.add_trace(go.Scatter(x=norm.index, y=norm[a]*100, name=f"Solo {a}", line=dict(width=1, opacity=0.4)))
+            
+            fig.update_layout(yaxis_title="Rendimento %", template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.error("Errore: Il numero di asset e
