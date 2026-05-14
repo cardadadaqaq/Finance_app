@@ -132,4 +132,53 @@ elif choice == "🧪 Portfolio Backtest":
             fig.update_layout(yaxis_title="Rendimento %", template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error("Errore: Il numero di asset e
+            st.error("Errore: Il numero di asset e di pesi deve coincidere.")
+    except: st.warning("Inserisci i pesi correttamente (es: 50, 50)")
+
+# --- 5. BLOOMBERG INSIGHTS ---
+elif choice == "⌨️ Bloomberg Insights":
+    st.title("Company Terminal Insights")
+    target = st.text_input("Ticker principale", "NVDA").upper()
+    if target:
+        try:
+            tk = yf.Ticker(target)
+            inf = tk.info
+            st.header(f"🏛️ {inf.get('longName', target)}")
+            
+            col_desc, col_news = st.columns([2, 1])
+            with col_desc:
+                st.subheader("Business Summary")
+                st.write(inf.get('longBusinessSummary', "N/A"))
+            with col_news:
+                st.subheader("Latest News")
+                for n in tk.news[:5]:
+                    st.markdown(f"- [{n['title']}]({n['link']})")
+            
+            st.divider()
+            st.subheader("📊 Fundamental Peer Analysis")
+            peers_in = st.text_input("Competitor", "AMD, INTC, AVGO")
+            p_list = [target] + [x.strip().upper() for x in peers_in.split(",")]
+            
+            rows = []
+            for p in p_list:
+                try:
+                    pi = yf.Ticker(p).info
+                    rows.append({
+                        "Ticker": p,
+                        "Price": pi.get('currentPrice', 0),
+                        "P/E": pi.get('forwardPE', 0),
+                        "Beta": pi.get('beta', 0),
+                        "P/B Ratio": pi.get('priceToBook', 0),
+                        "EPS": pi.get('forwardEps', 0),
+                        "Cap (B)": pi.get('marketCap', 0)/1e9,
+                        "Yield %": (pi.get('dividendYield', 0) or 0)*100
+                    })
+                except: continue
+            
+            st.table(pd.DataFrame(rows).set_index("Ticker"))
+            
+            st.divider()
+            st.subheader("⛓️ Sector Connections")
+            st.write(f"**Settore:** {inf.get('sector')} | **Industria:** {inf.get('industry')}")
+            st.info(f"L'azienda è strettamente collegata a {peers_in} tramite la supply chain del settore {inf.get('industry')}.")
+        except: st.error("Ticker non trovato.")
