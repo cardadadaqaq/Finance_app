@@ -10,134 +10,129 @@ from datetime import datetime, timedelta
 API_KEY = "8289268f09684b53abb50e095c0fe696" 
 # =========================================================
 
-# Configurazione Layout Dark & Testi visibili
+# Configurazione Layout Navy & Bianco Lucido
 st.set_page_config(page_title="FinLens Terminal Pro", layout="wide")
+
 st.markdown("""
     <style>
-    .main { background-color: #000000; color: #FFFFFF; }
-    /* Rende le metriche e i testi molto più leggibili */
-    [data-testid="stMetricValue"] { color: #00FF00 !important; font-weight: bold; font-size: 2rem; }
-    [data-testid="stMetricLabel"] { color: #FFFFFF !important; font-size: 1.1rem; }
-    [data-testid="stMetricDelta"] { color: #FF4B4B !important; }
-    .stMarkdown p { color: #FFFFFF !important; font-size: 1.05rem; }
-    h1, h2, h3 { color: #FFD700 !important; } /* Titoli in Oro stile Bloomberg */
-    .stButton>button { background-color: #333; color: white; border-radius: 5px; }
+    .stApp { background-color: #001f3f; }
+    html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, span {
+        color: #FFFFFF !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+        font-weight: 800 !important;
+        font-size: 2.5rem !important;
+        text-shadow: 0px 0px 12px rgba(255,255,255,0.4);
+    }
+    [data-testid="stMetricLabel"] { color: #E0E0E0 !important; font-size: 1.1rem; }
+    [data-testid="stSidebar"] { background-color: #001529; border-right: 1px solid #003366; }
+    .stDataFrame, table { background-color: #001f3f !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # Menu laterale
-st.sidebar.title("💎 FinLens Pro")
+st.sidebar.title("💎 FINLENS TERMINAL")
 menu = ["🌍 Market Overview", "🧮 Analisi DCF", "📊 Multi-Compare", "🧪 Backtesting Lab", "⌨️ Terminal Insights"]
 choice = st.sidebar.selectbox("Navigazione", menu)
 
-# --- 1. MARKET OVERVIEW (MERCATI GLOBALI) ---
+# --- 1. MARKET OVERVIEW ---
 if choice == "🌍 Market Overview":
     st.title("Market Overview - Global Indices")
-    
-    # Indici Internazionali
     indices = {
-        "S&P 500 (USA)": "^GSPC",
-        "Nasdaq (Tech)": "^IXIC",
-        "Nikkei 225 (Giappone)": "^N225",
-        "Hang Seng (Cina)": "^HSI",
-        "DAX (Germania)": "^GDAXI",
-        "FTSE MIB (Italia)": "FTSEMIB.MI"
+        "S&P 500 (USA)": "^GSPC", "Nasdaq (Tech)": "^IXIC",
+        "Nikkei 225 (JPN)": "^N225", "Hang Seng (HK)": "^HSI",
+        "DAX (GER)": "^GDAXI", "FTSE MIB (ITA)": "FTSEMIB.MI"
     }
-    
     cols = st.columns(3)
     for i, (name, ticker) in enumerate(indices.items()):
-        try:
-            data = yf.Ticker(ticker).history(period="2d")
+        data = yf.Ticker(ticker).history(period="2d")
+        if not data.empty:
             close = data['Close'].iloc[-1]
             prev = data['Close'].iloc[-2]
             delta = ((close - prev) / prev) * 100
-            cols[i % 3].metric(name, f"{close:,.2f}", f"{delta:+.2f}%")
-        except:
-            cols[i % 3].metric(name, "N/D", "0%")
+            cols[i % 3].metric(name, f"{close:,.2f}", f"{delta:+.2f}%", delta_color="off")
 
-    st.divider()
-    st.subheader("🔥 Top Movers (USA)")
-    stocks = ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "META"]
-    s_cols = st.columns(len(stocks))
-    for i, s in enumerate(stocks):
-        s_data = yf.Ticker(s).history(period="2d")
-        s_close = s_data['Close'].iloc[-1]
-        s_cols[i].metric(s, f"${s_close:,.2f}")
+# --- 2. ANALISI DCF DINAMICA ---
+elif choice == "🧮 Analisi DCF":
+    st.title("🧮 Calcolatore DCF Dinamico")
+    ticker_dcf = st.text_input("Inserisci Ticker Azienda per DCF (es. AAPL, NVDA, TSLA)", "").upper()
+    
+    if ticker_dcf:
+        stock = yf.Ticker(ticker_dcf)
+        info = stock.info
+        
+        # Prova a recuperare dati reali, altrimenti mette 0
+        cash_flow_iniziale = info.get('freeCashflow', 0)
+        wacc_stimato = info.get('ebitdaMargins', 0.10) * 100 # Approssimazione se manca WACC
+        
+        st.subheader(f"Parametri per {info.get('longName', ticker_dcf)}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            fcf = st.number_input("Free Cash Flow Attuale ($)", value=float(cash_flow_iniziale))
+            growth = st.slider("Tasso di Crescita stimato (%)", 1, 50, 10) / 100
+        with col2:
+            wacc = st.slider("Tasso di Sconto / WACC (%)", 5, 20, 10) / 100
+            t_growth = st.slider("Crescita Perpetua (%)", 1, 5, 2) / 100
 
-# --- 3. MULTI-COMPARE (AZIENDE A SCELTA) ---
+        if fcf > 0:
+            years = list(range(1, 6))
+            proiezioni = [fcf * (1 + growth)**i for i in years]
+            valori_attuali = [val / (1 + wacc)**i for i, val in enumerate(proiezioni, 1)]
+            
+            terminal_val = (proiezioni[-1] * (1 + t_growth)) / (wacc - t_growth)
+            pv_terminal = terminal_val / (1 + wacc)**5
+            valore_intrinseco = sum(valori_attuali) + pv_terminal
+            
+            st.divider()
+            st.metric("Valore Intrinseco Stimato (EV)", f"${valore_intrinseco:,.0f}", delta_color="off")
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=[f"Anno {i}" for i in years], y=proiezioni, marker_color='#FFFFFF'))
+            fig.update_layout(title="Proiezione Flussi di Cassa", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Dati Free Cash Flow non trovati per questo ticker. Inseriscili manualmente sopra.")
+    else:
+        st.info("Digita un Ticker (es. MSFT) per avviare il calcolo DCF.")
+
+# --- 3. MULTI-COMPARE ---
 elif choice == "📊 Multi-Compare":
     st.title("Confronto Custom Aziende")
-    input_tickers = st.text_input("Inserisci i Ticker separati da virgola (es: AAPL, TSLA, NVDA, GOOGL)", "AAPL, MSFT")
-    list_tickers = [x.strip().upper() for x in input_tickers.split(",")]
-    
+    input_tickers = st.text_input("Inserisci i Ticker (separati da virgola)", "AAPL, MSFT").upper()
+    list_tickers = [x.strip() for x in input_tickers.split(",") if x.strip()]
     if list_tickers:
-        period = st.selectbox("Periodo", ["1mo", "3mo", "6mo", "1y", "5y"], index=3)
-        data = yf.download(list_tickers, period=period)['Close']
-        if len(list_tickers) > 1:
-            norm_data = (data / data.iloc[0]) * 100
-            st.subheader("Performance Relativa (Base 100)")
-            st.line_chart(norm_data)
-        else:
-            st.line_chart(data)
-            
-        st.subheader("Dati Statistici")
-        st.dataframe(data.tail(10).style.format("{:.2f}"), use_container_width=True)
+        data = yf.download(list_tickers, period="1y")['Close']
+        st.line_chart((data / data.iloc[0]) * 100)
 
-# --- 4. BACKTESTING LAB (ETF & ASSETS) ---
+# --- 4. BACKTESTING LAB ---
 elif choice == "🧪 Backtesting Lab":
     st.title("Simulatore Backtesting")
-    assets_input = st.text_input("Asset da testare (es: CSSPX.MI, VWCE.DE, BTC-USD)", "VWCE.DE, QQQ")
-    assets = [x.strip().upper() for x in assets_input.split(",")]
-    
-    years = st.slider("Anni di Backtest", 1, 20, 5)
-    start = datetime.now() - timedelta(days=365*years)
-    
+    assets_input = st.text_input("Asset da testare (es: QQQ, BTC-USD)", "QQQ").upper()
+    assets = [x.strip() for x in assets_input.split(",") if x.strip()]
     if assets:
-        data = yf.download(assets, start=start)['Close']
-        norm = (data / data.iloc[0]) * 100
-        st.line_chart(norm)
-        
-        st.subheader("Rendimento Finale Stimato")
-        for a in assets:
-            total_ret = ((data[a].iloc[-1] / data[a].iloc[0]) - 1) * 100
-            st.write(f"🟢 **{a}**: {total_ret:.2f}%")
+        data = yf.download(assets, period="5y")['Close']
+        st.line_chart((data / data.iloc[0]) * 100)
 
-# --- 5. TERMINAL INSIGHTS (PEER COMPARISON) ---
+# --- 5. TERMINAL INSIGHTS ---
 elif choice == "⌨️ Terminal Insights":
     st.title("Bloomberg Style - Peer Analysis")
-    target = st.text_input("Inserisci Ticker principale (es. NVDA)", "NVDA").upper()
-    
+    target = st.text_input("Inserisci Ticker principale", "NVDA").upper()
     if target:
         t_info = yf.Ticker(target).info
-        st.header(f"Report: {t_info.get('longName')}")
-        
-        # Peer Analysis manuale o dinamica
-        st.subheader("Peer Comparison (Valutazione & P/E)")
-        # Esempio: Se cerchi NVDA, confrontiamo con AMD e INTC
-        sector = t_info.get('sector')
-        industry = t_info.get('industry')
-        st.write(f"Settore: **{sector}** | Industria: **{industry}**")
-        
-        peers = st.text_input("Modifica competitor da confrontare:", "AMD, INTC, AVGO, TSM")
-        peer_list = [target] + [x.strip().upper() for x in peers.split(",")]
+        st.header(f"REPORT: {t_info.get('longName', target)}")
+        peers_in = st.text_input("Ticker Competitor da confrontare", "AMD, INTC, AVGO").upper()
+        peer_list = [target] + [x.strip() for x in peers_in.split(",") if x.strip()]
         
         peer_data = []
         for p in peer_list:
-            p_tick = yf.Ticker(p).info
-            peer_data.append({
-                "Ticker": p,
-                "Price": p_tick.get('currentPrice'),
-                "P/E (Forward)": p_tick.get('forwardPE'),
-                "P/S": p_tick.get('priceToSalesTrailing12Months'),
-                "EV/EBITDA": p_tick.get('enterpriseToEbitda'),
-                "Market Cap (B)": p_tick.get('marketCap', 0) / 1e9
-            })
-        
-        df_peers = pd.DataFrame(peer_data).set_index("Ticker")
-        st.table(df_peers.style.highlight_max(axis=0, color='#113311').highlight_min(axis=0, color='#331111'))
-
-# (Il codice del DCF rimane invariato, basta inserirlo qui come prima)
-elif choice == "🧮 Analisi DCF":
-    st.title("Valutazione Discounted Cash Flow")
-    st.info("Configura i flussi di cassa per stimare il valore intrinseco.")
-    # ... (inserisci qui il codice DCF del messaggio precedente)
+            try:
+                p_tick = yf.Ticker(p).info
+                peer_data.append({
+                    "Ticker": p, "Price": p_tick.get('currentPrice'),
+                    "P/E (Forward)": p_tick.get('forwardPE'),
+                    "Market Cap (B)": p_tick.get('marketCap', 0) / 1e9
+                })
+            except: pass
+        st.table(pd.DataFrame(peer_data).set_index("Ticker"))
