@@ -752,7 +752,7 @@ elif choice == "Portfolio Backtest":
     run = st.button("▶  Esegui Backtest", use_container_width=True)
 
     if run and total_weight == 100:
-      valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
+        valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
         valid_assets = [p[0] for p in valid_pairs]
         w_norm = [p[1] / 100 for p in valid_pairs]
         start = datetime.now() - timedelta(days=365 * years)
