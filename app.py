@@ -191,14 +191,19 @@ with st.sidebar:
         ("🧮", "Analisi DCF"),
         ("📊", "Multi-Compare"),
         ("🧪", "Portfolio Backtest"),
+        ("🔍", "Stock Screener"),
         ("⌨️", "Bloomberg Insights"),
     ]
 
     if "page" not in st.session_state:
         st.session_state.page = "Global Overview"
+    if "screener_selected" not in st.session_state:
+        st.session_state.screener_selected = None
+    if "screener_results" not in st.session_state:
+        st.session_state.screener_results = None
 
     for icon, label in menu_items:
-        if st.button(f"{icon}  {label}", key=label, use_container_width=True):
+        if st.button(f"{icon}  {label}", key=f"nav_{label}", use_container_width=True):
             st.session_state.page = label
 
     st.markdown("""
@@ -214,7 +219,7 @@ choice = st.session_state.page
 
 
 # =========================================================
-# UTILITY
+# UTILITY & CACHING
 # =========================================================
 def page_title(text, subtitle=""):
     sub_html = (f'<p style="color:#A8BDD4; font-size:0.88rem; margin-top:-1rem; '
@@ -234,6 +239,44 @@ PLOTLY_LAYOUT = dict(
     hovermode="x unified",
 )
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_ticker_info(ticker):
+    try:
+        return yf.Ticker(ticker).info
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_ticker_history(ticker, period="2d"):
+    try:
+        return yf.Ticker(ticker).history(period=period)
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_ticker_news(ticker):
+    try:
+        return yf.Ticker(ticker).news
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def download_data(tickers, start=None, period=None):
+    try:
+        if period:
+            return yf.download(tickers, period=period, auto_adjust=True, progress=False)
+        return yf.download(tickers, start=start, auto_adjust=True, progress=False)
+    except Exception:
+        return pd.DataFrame()
+
+
+# =========================================================
+# SUPPLY CHAIN MAP
+# =========================================================
 SUPPLY_CHAIN_MAP = {
     "Technology": {
         "suppliers": ["Taiwan Semiconductor (TSM)", "Samsung Electronics", "ASML (ASML.AS)",
@@ -248,10 +291,8 @@ SUPPLY_CHAIN_MAP = {
         "notes": "Fortemente dipendente da componentistica asiatica e da cicli di upgrade dei consumatori."
     },
     "Semiconductors": {
-        "suppliers": ["ASML (ASML.AS)", "Applied Materials (AMAT)",
-                      "Air Products (APD)", "Shin-Etsu Chemical"],
-        "customers": ["Apple (AAPL)", "Nvidia (NVDA)", "AMD",
-                      "Qualcomm (QCOM)", "Data center hyperscalers"],
+        "suppliers": ["ASML (ASML.AS)", "Applied Materials (AMAT)", "Air Products (APD)", "Shin-Etsu Chemical"],
+        "customers": ["Apple (AAPL)", "Nvidia (NVDA)", "AMD", "Qualcomm (QCOM)", "Data center hyperscalers"],
         "notes": "Settore capital-intensive con altissime barriere d'ingresso. I fornitori di litografia (ASML) sono monopolisti de facto."
     },
     "Communication Services": {
@@ -308,6 +349,171 @@ SUPPLY_CHAIN_MAP = {
 
 
 # =========================================================
+# BLOOMBERG INSIGHTS — funzione riutilizzabile
+# =========================================================
+def show_bloomberg_insights(target):
+    """Mostra l'analisi completa di un ticker. Usata sia dalla schermata 6 che dallo Screener."""
+    with st.spinner(f"Recupero dati per {target}..."):
+        try:
+            inf = get_ticker_info(target)
+
+            company_name = inf.get('longName') or inf.get('shortName') or inf.get('symbol')
+            current_price = (inf.get('currentPrice') or inf.get('regularMarketPrice')
+                             or inf.get('previousClose'))
+
+            if not company_name and not current_price:
+                raise ValueError("Ticker non trovato.")
+
+            display_name = company_name if company_name else target
+
+            st.markdown(f"""
+                <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:8px;
+                            padding:1.2rem 1.5rem; margin-bottom:1.5rem;'>
+                    <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
+                                color:#4A9EFF; letter-spacing:0.2em; margin-bottom:4px;'>EQUITY</div>
+                    <div style='font-size:1.6rem; font-weight:700; color:#FFFFFF;'>{display_name}</div>
+                    <div style='font-family: IBM Plex Mono, monospace; font-size:0.85rem;
+                                color:#A8BDD4; margin-top:4px;'>
+                        {target} · {inf.get('exchange', 'N/A')} · {inf.get('currency', 'N/A')}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Prezzo", f"{current_price:,.2f}" if current_price else "N/A")
+            k2.metric("P/E Forward", f"{inf.get('forwardPE'):.1f}" if inf.get('forwardPE') else "N/A")
+            k3.metric("EPS Forward", f"{inf.get('forwardEps'):.2f}" if inf.get('forwardEps') else "N/A")
+            k4.metric("Beta", f"{inf.get('beta'):.2f}" if inf.get('beta') else "N/A")
+            k5.metric("Market Cap", f"${inf.get('marketCap', 0)/1e9:.1f}B" if inf.get('marketCap') else "N/A")
+
+            st.markdown("---")
+
+            col_desc, col_news = st.columns([2, 1])
+            with col_desc:
+                st.markdown("#### Business Summary")
+                summary = inf.get('longBusinessSummary', '')
+                st.write(summary if summary else "Descrizione non disponibile.")
+
+            with col_news:
+                st.markdown("#### Latest News")
+                try:
+                    news_items = get_ticker_news(target)
+                    if news_items:
+                        for n in news_items[:5]:
+                            st.markdown(f"→ [{n.get('title', 'No title')}]({n.get('link', '#')})")
+                    else:
+                        st.info("Nessuna news disponibile.")
+                except Exception:
+                    st.info("News non disponibili.")
+
+            st.markdown("---")
+
+            st.markdown("#### Fundamental Peer Analysis")
+            peers_in = st.text_input("Competitors (separati da virgola)", "AMD, INTC, AVGO",
+                                     key=f"peers_{target}")
+            p_list = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
+
+            with st.spinner("Caricamento dati peers..."):
+                rows = []
+                for p in p_list:
+                    try:
+                        pi = get_ticker_info(p)
+                        price_p = (pi.get('currentPrice') or pi.get('regularMarketPrice')
+                                   or pi.get('previousClose') or 0)
+                        rows.append({
+                            "Ticker":    p,
+                            "Price":     f"{price_p:,.2f}" if price_p else "N/A",
+                            "P/E Fwd":   f"{pi.get('forwardPE'):.1f}" if pi.get('forwardPE') else "N/A",
+                            "EPS Fwd":   f"{pi.get('forwardEps'):.2f}" if pi.get('forwardEps') else "N/A",
+                            "Beta":      f"{pi.get('beta'):.2f}" if pi.get('beta') else "N/A",
+                            "P/B":       f"{pi.get('priceToBook'):.1f}" if pi.get('priceToBook') else "N/A",
+                            "Cap (B$)":  f"{pi.get('marketCap',0)/1e9:.1f}" if pi.get('marketCap') else "N/A",
+                            "Div Yield": f"{(pi.get('dividendYield') or 0)*100:.2f}%",
+                            "52W High":  f"{pi.get('fiftyTwoWeekHigh'):.2f}" if pi.get('fiftyTwoWeekHigh') else "N/A",
+                        })
+                    except Exception:
+                        rows.append({"Ticker": p, "Price": "ERR", "P/E Fwd": "—",
+                                     "EPS Fwd": "—", "Beta": "—", "P/B": "—",
+                                     "Cap (B$)": "—", "Div Yield": "—", "52W High": "—"})
+                if rows:
+                    st.dataframe(pd.DataFrame(rows).set_index("Ticker"), use_container_width=True)
+
+            st.markdown("---")
+
+            st.markdown("#### Sector & Industry")
+            sector = inf.get('sector', 'N/A')
+            industry = inf.get('industry', 'N/A')
+            country = inf.get('country', 'N/A')
+            exchange_name = inf.get('exchange', 'N/A')
+
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("Settore", sector)
+            sc2.metric("Industria", industry)
+            sc3.metric("Paese", country)
+            sc4.metric("Exchange", exchange_name)
+
+            st.markdown("---")
+
+            st.markdown("#### Supply Chain & Ecosystem")
+            sc_data = SUPPLY_CHAIN_MAP.get(sector, None)
+            if sc_data:
+                chain_col1, chain_col2 = st.columns(2)
+                with chain_col1:
+                    st.markdown("##### 🔼 Da chi acquista — Fornitori chiave")
+                    for s in sc_data["suppliers"]:
+                        st.markdown(f"- {s}")
+                with chain_col2:
+                    st.markdown("##### 🔽 A chi vende — Clienti / Sbocchi")
+                    for c in sc_data["customers"]:
+                        st.markdown(f"- {c}")
+                st.info(f"💡 {sc_data['notes']}")
+            else:
+                st.info(f"Mappa supply chain non disponibile per il settore '{sector}'.")
+
+            st.markdown("---")
+
+            st.markdown("#### Andamento relativo vs Peers (12 mesi)")
+            peer_tickers = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
+            try:
+                peer_raw = download_data(peer_tickers, period="1y")
+                if isinstance(peer_raw.columns, pd.MultiIndex):
+                    peer_data = peer_raw['Close']
+                else:
+                    peer_data = peer_raw
+
+                peer_norm = ((peer_data / peer_data.iloc[0]) - 1) * 100
+                peer_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C']
+
+                fig_peer = go.Figure()
+                peer_cols = peer_norm.columns if hasattr(peer_norm, 'columns') else [target]
+                for idx, col in enumerate(peer_cols):
+                    fig_peer.add_trace(go.Scatter(
+                        x=peer_norm.index, y=peer_norm[col], name=col,
+                        line=dict(width=2.5 if col == target else 1.5,
+                                  color=peer_colors[idx % len(peer_colors)])
+                    ))
+                fig_peer.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+                fig_peer.update_layout(**PLOTLY_LAYOUT, yaxis_title="Rendimento % (norm.)",
+                                       height=380, title=f"Performance relativa: {target} vs peers (1 anno)")
+                st.plotly_chart(fig_peer, use_container_width=True)
+            except Exception:
+                st.info("Grafico peers non disponibile.")
+
+        except ValueError:
+            st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo.")
+            st.markdown("""
+                **Esempi di formato corretto:**
+                - USA: `AAPL`, `MSFT`, `NVDA`
+                - Italia: `ENI.MI`, `ENEL.MI`
+                - Francia: `MC.PA`, `TTE.PA`
+                - Germania: `SAP.DE`, `BMW.DE`
+                - ETF: `VWCE.DE`, `SWDA.MI`
+            """)
+        except Exception as e:
+            st.error(f"❌  Errore nel recupero dati per **{target}**: {str(e)}")
+
+
+# =========================================================
 # 1. GLOBAL OVERVIEW
 # =========================================================
 if choice == "Global Overview":
@@ -325,11 +531,13 @@ if choice == "Global Overview":
         cols = st.columns(4)
         for i, (name, ticker) in enumerate(titles.items()):
             try:
-                d = yf.Ticker(ticker).history(period="2d")
+                d = get_ticker_history(ticker, "2d")
                 if len(d) >= 2:
                     c, p = d['Close'].iloc[-1], d['Close'].iloc[-2]
                     pct = ((c - p) / p) * 100
                     cols[i % 4].metric(name, f"{c:,.2f}", f"{pct:+.2f}%")
+                else:
+                    cols[i % 4].metric(name, "N/A", "—")
             except Exception:
                 cols[i % 4].metric(name, "N/A", "—")
 
@@ -341,7 +549,6 @@ elif choice == "Analisi DCF":
     page_title("🧮  Discounted Cash Flow", "Stima il fair value di un'azienda tramite il modello DCF")
 
     col1, col2 = st.columns(2)
-
     with col1:
         st.markdown("#### Parametri di Input")
         fcf = st.number_input("Free Cash Flow Attuale ($)", value=1_000_000_000, step=50_000_000, format="%d")
@@ -355,8 +562,7 @@ elif choice == "Analisi DCF":
     w = wacc / 100
     tg = terminal_growth / 100
 
-    cash_flows = []
-    pv_flows = []
+    cash_flows, pv_flows = [], []
     for yr in range(1, years + 1):
         cf = fcf * ((1 + g) ** yr)
         pv = cf / ((1 + w) ** yr)
@@ -378,20 +584,12 @@ elif choice == "Analisi DCF":
     st.markdown("---")
     st.markdown("#### Proiezione Cash Flows")
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=[f"Anno {i+1}" for i in range(years)],
-        y=[v/1e6 for v in cash_flows],
-        name="FCF Proiettato",
-        marker_color='#4A9EFF',
-        opacity=0.8
-    ))
-    fig.add_trace(go.Bar(
-        x=[f"Anno {i+1}" for i in range(years)],
-        y=[v/1e6 for v in pv_flows],
-        name="PV dei Cash Flows",
-        marker_color='#2ECC71',
-        opacity=0.8
-    ))
+    fig.add_trace(go.Bar(x=[f"Anno {i+1}" for i in range(years)],
+                         y=[v/1e6 for v in cash_flows], name="FCF Proiettato",
+                         marker_color='#4A9EFF', opacity=0.8))
+    fig.add_trace(go.Bar(x=[f"Anno {i+1}" for i in range(years)],
+                         y=[v/1e6 for v in pv_flows], name="PV dei Cash Flows",
+                         marker_color='#2ECC71', opacity=0.8))
     fig.update_layout(**PLOTLY_LAYOUT, yaxis_title="$ Milioni", barmode='group',
                       title="Cash Flow Proiettato vs Present Value")
     st.plotly_chart(fig, use_container_width=True)
@@ -417,7 +615,7 @@ elif choice == "Multi-Compare":
     if tk_list:
         with st.spinner("Download dati..."):
             try:
-                raw = yf.download(tk_list, start=start, auto_adjust=True, progress=False)
+                raw = download_data(tk_list, start=start)
                 if isinstance(raw.columns, pd.MultiIndex):
                     data = raw['Close']
                 else:
@@ -435,11 +633,8 @@ elif choice == "Multi-Compare":
                                              line=dict(width=2, color=colors[0])))
                 else:
                     for idx, col in enumerate(rets.columns):
-                        fig.add_trace(go.Scatter(
-                            x=rets.index, y=rets[col],
-                            name=col,
-                            line=dict(width=2, color=colors[idx % len(colors)])
-                        ))
+                        fig.add_trace(go.Scatter(x=rets.index, y=rets[col], name=col,
+                                                 line=dict(width=2, color=colors[idx % len(colors)])))
 
                 fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
                 fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento % Normalizzato",
@@ -472,8 +667,7 @@ elif choice == "Portfolio Backtest":
         n_assets = st.slider("Numero di asset", min_value=2, max_value=8, value=3)
 
     assets_defaults = ["VOO", "GLD", "TLT", "QQQ", "BND", "VNQ", "EEM", "PDBC"]
-    asset_list = []
-    weight_list = []
+    asset_list, weight_list = [], []
 
     st.markdown("##### Ticker")
     cols_a = st.columns(n_assets)
@@ -490,8 +684,7 @@ elif choice == "Portfolio Backtest":
     for i in range(n_assets):
         with cols_w[i]:
             w = st.slider(f"{asset_list[i] or f'Asset {i+1}'}",
-                          min_value=0, max_value=100,
-                          value=default_weight, key=f"weight_{i}")
+                          min_value=0, max_value=100, value=default_weight, key=f"weight_{i}")
             weight_list.append(w)
 
     total_weight = sum(weight_list)
@@ -516,8 +709,7 @@ elif choice == "Portfolio Backtest":
     with col4:
         years = st.slider("Orizzonte temporale (anni)", min_value=1, max_value=20, value=5)
 
-    bench_eq = "SPY"
-    bench_bond = "AGG"
+    bench_eq, bench_bond = "SPY", "AGG"
     if bench is None:
         bcol1, bcol2 = st.columns(2)
         with bcol1:
@@ -531,12 +723,11 @@ elif choice == "Portfolio Backtest":
         valid_assets = [a for a in asset_list if a]
         w_norm = [weight_list[i] / 100 for i, a in enumerate(asset_list) if a]
         start = datetime.now() - timedelta(days=365 * years)
-
         tickers_to_dl = valid_assets + ([bench] if bench else [bench_eq.upper(), bench_bond.upper()])
 
         with st.spinner("Download dati storici..."):
             try:
-                raw = yf.download(tickers_to_dl, start=start, auto_adjust=True, progress=False)
+                raw = download_data(tickers_to_dl, start=start)
                 if isinstance(raw.columns, pd.MultiIndex):
                     data = raw['Close']
                 else:
@@ -560,36 +751,28 @@ elif choice == "Portfolio Backtest":
                     bench_name = bench_label
 
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=strategy.index, y=strategy * 100,
-                    name="📐 La Tua Strategia",
-                    line=dict(width=3, color="#4A9EFF"),
-                    fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'
-                ))
+                fig.add_trace(go.Scatter(x=strategy.index, y=strategy * 100,
+                                         name="📐 La Tua Strategia",
+                                         line=dict(width=3, color="#4A9EFF"),
+                                         fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'))
 
                 if bench_col and bench_col in norm.columns:
-                    fig.add_trace(go.Scatter(
-                        x=norm.index, y=norm[bench_col] * 100,
-                        name=f"📌 {bench_name}",
-                        line=dict(width=2, dash='dash', color='#FFFFFF'),
-                    ))
+                    fig.add_trace(go.Scatter(x=norm.index, y=norm[bench_col] * 100,
+                                             name=f"📌 {bench_name}",
+                                             line=dict(width=2, dash='dash', color='#FFFFFF')))
                 elif bench is None:
-                    fig.add_trace(go.Scatter(
-                        x=bench_series.index, y=bench_series * 100,
-                        name=f"📌 {bench_name}",
-                        line=dict(width=2, dash='dash', color='#FFFFFF'),
-                    ))
+                    fig.add_trace(go.Scatter(x=bench_series.index, y=bench_series * 100,
+                                             name=f"📌 {bench_name}",
+                                             line=dict(width=2, dash='dash', color='#FFFFFF')))
 
                 asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
                                 '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
                 for idx, a in enumerate(valid_assets):
                     if a in norm.columns:
-                        fig.add_trace(go.Scatter(
-                            x=norm.index, y=norm[a] * 100,
-                            name=f"  {a} ({weight_list[idx]}%)",
-                            line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
-                            opacity=0.5
-                        ))
+                        fig.add_trace(go.Scatter(x=norm.index, y=norm[a] * 100,
+                                                 name=f"  {a} ({weight_list[idx]}%)",
+                                                 line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
+                                                 opacity=0.5))
 
                 fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
                 fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento Cumulativo (%)",
@@ -625,192 +808,154 @@ elif choice == "Portfolio Backtest":
 
 
 # =========================================================
-# 5. BLOOMBERG INSIGHTS
+# 5. STOCK SCREENER
+# =========================================================
+elif choice == "Stock Screener":
+
+    # Se è stata selezionata un'azienda dallo screener, mostra l'analisi dettagliata
+    if st.session_state.screener_selected:
+        target = st.session_state.screener_selected
+        col_back, col_title = st.columns([1, 6])
+        with col_back:
+            if st.button("← Torna allo Screener"):
+                st.session_state.screener_selected = None
+                st.rerun()
+        page_title(f"⌨️  Analisi Dettagliata — {target}")
+        show_bloomberg_insights(target)
+
+    else:
+        page_title("🔍  Stock Screener", "Filtra aziende per fondamentali e identifica opportunità di investimento")
+
+        UNIVERSE = [
+            "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","BRK-B","JPM","V",
+            "UNH","XOM","JNJ","PG","MA","HD","ABBV","MRK","CVX","PEP","KO","AVGO",
+            "COST","WMT","BAC","MCD","CSCO","ACN","LIN","TMO","DHR","NEE","AMD",
+            "INTC","QCOM","TXN","AMAT","LRCX","ASML","TSM","NVO",
+            "MC.PA","TTE.PA","SAN.PA","SAP.DE","BMW.DE","SIE.DE",
+            "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI"
+        ]
+
+        st.markdown("#### Parametri di Filtro")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            pe_max      = st.slider("P/E massimo",               0, 200, 50)
+            pb_max      = st.slider("P/B massimo",               0, 30,  10)
+            ps_max      = st.slider("P/S massimo",               0, 50,  15)
+        with col2:
+            cap_min     = st.slider("Market Cap min (B$)",       0, 500, 10)
+            de_max      = st.slider("Debt/Equity massimo",       0, 10,   3)
+            margin_min  = st.slider("Margine Operativo min (%)", -50, 60,  5)
+        with col3:
+            roic_min    = st.slider("ROIC min (%)",              -20, 60,  5)
+            evebitda_max= st.slider("EV/EBITDA massimo",          0, 80,  25)
+            sector_filter = st.selectbox("Settore", [
+                "Tutti","Technology","Healthcare","Financials","Industrials",
+                "Consumer Defensive","Consumer Cyclical","Energy",
+                "Communication Services","Utilities","Real Estate","Basic Materials"
+            ])
+
+        custom_in = st.text_input("Aggiungi ticker custom all'universo (separati da virgola)", "")
+        if custom_in.strip():
+            extras = [x.strip().upper() for x in custom_in.split(",") if x.strip()]
+            UNIVERSE = list(set(UNIVERSE + extras))
+
+        run_screen = st.button("▶  Esegui Screening", use_container_width=True)
+
+        if run_screen:
+            results = []
+            progress = st.progress(0)
+            status   = st.empty()
+
+            for i, tkr in enumerate(UNIVERSE):
+                progress.progress((i + 1) / len(UNIVERSE))
+                status.markdown(
+                    f"<span style='color:#A8BDD4; font-size:0.8rem;'>Analisi: {tkr} "
+                    f"({i+1}/{len(UNIVERSE)})</span>", unsafe_allow_html=True)
+                try:
+                    info = get_ticker_info(tkr)
+                    if not info:
+                        continue
+
+                    pe        = info.get('forwardPE') or info.get('trailingPE')
+                    pb        = info.get('priceToBook')
+                    ps        = info.get('priceToSalesTrailing12Months')
+                    mcap      = info.get('marketCap')
+                    de        = info.get('debtToEquity')      # yfinance dà già in % (es. 150 = 1.5x)
+                    op_margin = info.get('operatingMargins')  # decimale (es. 0.25 = 25%)
+                    roic      = info.get('returnOnEquity')    # proxy ROIC, decimale
+                    ev_ebitda = info.get('enterpriseToEbitda')
+                    sector_v  = info.get('sector', '')
+                    name      = info.get('shortName', tkr)
+                    price     = (info.get('currentPrice') or info.get('regularMarketPrice')
+                                 or info.get('previousClose'))
+
+                    # Filtro settore
+                    if sector_filter != "Tutti" and sector_v != sector_filter:
+                        continue
+
+                    # Filtri numerici
+                    if pe        is not None and pe          > pe_max:              continue
+                    if pb        is not None and pb          > pb_max:              continue
+                    if ps        is not None and ps          > ps_max:              continue
+                    if de        is not None and de / 100    > de_max:              continue
+                    if ev_ebitda is not None and ev_ebitda   > evebitda_max:        continue
+                    if mcap      is not None and mcap / 1e9  < cap_min:             continue
+                    if op_margin is not None and op_margin * 100 < margin_min:      continue
+                    if roic      is not None and roic * 100  < roic_min:            continue
+
+                    results.append({
+                        "Ticker":       tkr,
+                        "Nome":         name,
+                        "Settore":      sector_v,
+                        "Prezzo":       f"{price:.2f}"        if price     else "N/A",
+                        "P/E":          f"{pe:.1f}"           if pe        else "N/A",
+                        "P/B":          f"{pb:.1f}"           if pb        else "N/A",
+                        "P/S":          f"{ps:.1f}"           if ps        else "N/A",
+                        "EV/EBITDA":    f"{ev_ebitda:.1f}"    if ev_ebitda else "N/A",
+                        "Op.Margin %":  f"{op_margin*100:.1f}"if op_margin else "N/A",
+                        "ROE %":        f"{roic*100:.1f}"     if roic      else "N/A",
+                        "D/E (x)":      f"{de/100:.2f}"       if de        else "N/A",
+                        "Cap (B$)":     f"{mcap/1e9:.1f}"     if mcap      else "N/A",
+                    })
+                except Exception:
+                    continue
+
+            progress.empty()
+            status.empty()
+
+            if results:
+                st.session_state.screener_results = results
+            
+        # Mostra risultati (persistono tra run senza re-eseguire)
+        if st.session_state.screener_results:
+            results = st.session_state.screener_results
+            st.success(f"✅  {len(results)} aziende trovate che rispettano i filtri")
+            st.markdown("---")
+            st.markdown("#### Risultati — clicca su un'azienda per analizzarla")
+
+            df_results = pd.DataFrame(results)
+            st.dataframe(df_results.set_index("Ticker"), use_container_width=True)
+
+            st.markdown("#### Analizza un'azienda dal risultato")
+            ticker_options = [f"{r['Ticker']} — {r['Nome']}" for r in results]
+            selected_option = st.selectbox("Seleziona azienda", ticker_options, key="screener_select_box")
+
+            if st.button("🔎  Apri Analisi Dettagliata", use_container_width=True):
+                selected_ticker = selected_option.split(" — ")[0].strip()
+                st.session_state.screener_selected = selected_ticker
+                st.rerun()
+
+        elif run_screen:
+            st.warning("Nessuna azienda trovata con i filtri selezionati. Prova ad allargare i parametri.")
+
+
+# =========================================================
+# 6. BLOOMBERG INSIGHTS
 # =========================================================
 elif choice == "Bloomberg Insights":
     page_title("⌨️  Company Terminal Insights", "Analisi fondamentale, notizie, supply chain e peer comparison")
 
     target = st.text_input("Ticker principale", "NVDA",
                            placeholder="Es: AAPL, MSFT, MC.PA, ENI.MI ...").strip().upper()
-
     if target:
-        with st.spinner(f"Recupero dati per {target}..."):
-            try:
-                tk = yf.Ticker(target)
-                inf = tk.info
-
-                company_name = inf.get('longName') or inf.get('shortName') or inf.get('symbol')
-                current_price = (inf.get('currentPrice') or inf.get('regularMarketPrice')
-                                 or inf.get('previousClose'))
-
-                if not company_name and not current_price:
-                    raise ValueError("Ticker non trovato.")
-
-                display_name = company_name if company_name else target
-
-                # HEADER
-                st.markdown(f"""
-                    <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:8px;
-                                padding:1.2rem 1.5rem; margin-bottom:1.5rem;'>
-                        <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
-                                    color:#4A9EFF; letter-spacing:0.2em; margin-bottom:4px;'>EQUITY</div>
-                        <div style='font-size:1.6rem; font-weight:700; color:#FFFFFF;'>{display_name}</div>
-                        <div style='font-family: IBM Plex Mono, monospace; font-size:0.85rem;
-                                    color:#A8BDD4; margin-top:4px;'>
-                            {target} · {inf.get('exchange', 'N/A')} · {inf.get('currency', 'N/A')}
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-
-                # KPI
-                k1, k2, k3, k4, k5 = st.columns(5)
-                k1.metric("Prezzo", f"{current_price:,.2f}" if current_price else "N/A")
-                k2.metric("P/E Forward", f"{inf.get('forwardPE'):.1f}" if inf.get('forwardPE') else "N/A")
-                k3.metric("EPS Forward", f"{inf.get('forwardEps'):.2f}" if inf.get('forwardEps') else "N/A")
-                k4.metric("Beta", f"{inf.get('beta'):.2f}" if inf.get('beta') else "N/A")
-                k5.metric("Market Cap", f"${inf.get('marketCap', 0)/1e9:.1f}B" if inf.get('marketCap') else "N/A")
-
-                st.markdown("---")
-
-                # DESCRIZIONE + NEWS
-                col_desc, col_news = st.columns([2, 1])
-                with col_desc:
-                    st.markdown("#### Business Summary")
-                    summary = inf.get('longBusinessSummary', '')
-                    st.write(summary if summary else "Descrizione non disponibile per questo ticker.")
-
-                with col_news:
-                    st.markdown("#### Latest News")
-                    try:
-                        news_items = tk.news
-                        if news_items:
-                            for n in news_items[:5]:
-                                st.markdown(f"→ [{n.get('title', 'No title')}]({n.get('link', '#')})")
-                        else:
-                            st.info("Nessuna news disponibile.")
-                    except Exception:
-                        st.info("News non disponibili.")
-
-                st.markdown("---")
-
-                # PEER ANALYSIS
-                st.markdown("#### Fundamental Peer Analysis")
-                peers_in = st.text_input("Competitors (separati da virgola)", "AMD, INTC, AVGO")
-                p_list = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
-
-                with st.spinner("Caricamento dati peers..."):
-                    rows = []
-                    for p in p_list:
-                        try:
-                            pi = yf.Ticker(p).info
-                            price_p = (pi.get('currentPrice') or pi.get('regularMarketPrice')
-                                       or pi.get('previousClose') or 0)
-                            rows.append({
-                                "Ticker": p,
-                                "Price": f"{price_p:,.2f}" if price_p else "N/A",
-                                "P/E Fwd": f"{pi.get('forwardPE'):.1f}" if pi.get('forwardPE') else "N/A",
-                                "EPS Fwd": f"{pi.get('forwardEps'):.2f}" if pi.get('forwardEps') else "N/A",
-                                "Beta": f"{pi.get('beta'):.2f}" if pi.get('beta') else "N/A",
-                                "P/B": f"{pi.get('priceToBook'):.1f}" if pi.get('priceToBook') else "N/A",
-                                "Cap (B$)": f"{pi.get('marketCap',0)/1e9:.1f}" if pi.get('marketCap') else "N/A",
-                                "Div Yield": f"{(pi.get('dividendYield') or 0)*100:.2f}%",
-                                "52W High": f"{pi.get('fiftyTwoWeekHigh'):.2f}" if pi.get('fiftyTwoWeekHigh') else "N/A",
-                            })
-                        except Exception:
-                            rows.append({"Ticker": p, "Price": "ERR", "P/E Fwd": "—",
-                                         "EPS Fwd": "—", "Beta": "—", "P/B": "—",
-                                         "Cap (B$)": "—", "Div Yield": "—", "52W High": "—"})
-
-                    if rows:
-                        st.dataframe(pd.DataFrame(rows).set_index("Ticker"), use_container_width=True)
-
-                st.markdown("---")
-
-                # SECTOR INFO
-                st.markdown("#### Sector & Industry")
-                sector = inf.get('sector', 'N/A')
-                industry = inf.get('industry', 'N/A')
-                country = inf.get('country', 'N/A')
-                exchange_name = inf.get('exchange', 'N/A')
-
-                sc1, sc2, sc3, sc4 = st.columns(4)
-                sc1.metric("Settore", sector)
-                sc2.metric("Industria", industry)
-                sc3.metric("Paese", country)
-                sc4.metric("Exchange", exchange_name)
-
-                st.markdown("---")
-
-                # SUPPLY CHAIN
-                st.markdown("#### Supply Chain & Ecosystem")
-                sc_data = SUPPLY_CHAIN_MAP.get(sector, None)
-
-                if sc_data:
-                    chain_col1, chain_col2 = st.columns(2)
-                    with chain_col1:
-                        st.markdown("##### 🔼 Da chi acquista — Fornitori chiave")
-                        for s in sc_data["suppliers"]:
-                            st.markdown(f"- {s}")
-                    with chain_col2:
-                        st.markdown("##### 🔽 A chi vende — Clienti / Sbocchi")
-                        for c in sc_data["customers"]:
-                            st.markdown(f"- {c}")
-                    st.info(f"💡 {sc_data['notes']}")
-                else:
-                    st.markdown(f"**Settore:** {sector} | **Industria:** {industry}")
-                    st.info(f"Mappa supply chain non disponibile per il settore '{sector}'.")
-
-                st.markdown("---")
-
-                # GRAFICO PEERS 12 MESI
-                st.markdown("#### Andamento relativo vs Peers (12 mesi)")
-                peer_tickers = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
-
-                try:
-                    peer_raw = yf.download(peer_tickers, period="1y", auto_adjust=True, progress=False)
-                    if isinstance(peer_raw.columns, pd.MultiIndex):
-                        peer_data = peer_raw['Close']
-                    else:
-                        peer_data = peer_raw
-
-                    peer_norm = ((peer_data / peer_data.iloc[0]) - 1) * 100
-                    peer_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C']
-
-                    fig_peer = go.Figure()
-                    peer_cols = peer_norm.columns if hasattr(peer_norm, 'columns') else [target]
-                    for idx, col in enumerate(peer_cols):
-                        fig_peer.add_trace(go.Scatter(
-                            x=peer_norm.index,
-                            y=peer_norm[col],
-                            name=col,
-                            line=dict(
-                                width=2.5 if col == target else 1.5,
-                                color=peer_colors[idx % len(peer_colors)]
-                            )
-                        ))
-
-                    fig_peer.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                    fig_peer.update_layout(
-                        **PLOTLY_LAYOUT,
-                        yaxis_title="Rendimento % (norm.)",
-                        height=380,
-                        title=f"Performance relativa: {target} vs peers (1 anno)"
-                    )
-                    st.plotly_chart(fig_peer, use_container_width=True)
-
-                except Exception:
-                    st.info("Grafico peers non disponibile.")
-
-            except ValueError:
-                st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo.")
-                st.markdown("""
-                    **Esempi di formato corretto:**
-                    - USA: `AAPL`, `MSFT`, `NVDA`
-                    - Italia: `ENI.MI`, `ENEL.MI`
-                    - Francia: `MC.PA`, `TTE.PA`
-                    - Germania: `SAP.DE`, `BMW.DE`
-                    - ETF: `VWCE.DE`, `SWDA.MI`
-                """)
-            except Exception as e:
-                st.error(f"❌  Errore nel recupero dati per **{target}**: {str(e)}")
-                st.markdown("Verifica la connessione o prova con un ticker diverso.")
+        show_bloomberg_insights(target)
