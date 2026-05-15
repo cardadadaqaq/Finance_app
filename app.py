@@ -720,7 +720,7 @@ elif choice == "Portfolio Backtest":
             weight_list.append(w)
 
     total_weight = sum(weight_list)
-   if total_weight == 100:
+    if total_weight == 100:
         valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
         valid_assets = [p[0] for p in valid_pairs]
         w_norm = [p[1] / 100 for p in valid_pairs]
