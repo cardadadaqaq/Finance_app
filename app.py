@@ -720,38 +720,7 @@ elif choice == "Portfolio Backtest":
             weight_list.append(w)
 
     total_weight = sum(weight_list)
-    if total_weight != 100:
-        st.warning(f"⚠️  La somma dei pesi è {total_weight}% — deve essere esattamente 100%.")
-    else:
-        st.success(f"✅  Pesi bilanciati: {total_weight}%")
-
-    st.markdown("---")
-    st.markdown("#### 2 · Benchmark e Orizzonte")
-
-    col3, col4 = st.columns(2)
-    with col3:
-        bench_options = {
-            "S&P 500 (^GSPC)": "^GSPC",
-            "MSCI World (VWCE.DE)": "VWCE.DE",
-            "Nasdaq 100 (^IXIC)": "^IXIC",
-            "60/40 Custom": None
-        }
-        bench_label = st.selectbox("Benchmark", list(bench_options.keys()))
-        bench = bench_options[bench_label]
-    with col4:
-        years = st.slider("Orizzonte temporale (anni)", min_value=1, max_value=20, value=5)
-
-    bench_eq, bench_bond = "SPY", "AGG"
-    if bench is None:
-        bcol1, bcol2 = st.columns(2)
-        with bcol1:
-            bench_eq = st.text_input("Benchmark Equity Ticker", "SPY")
-        with bcol2:
-            bench_bond = st.text_input("Benchmark Bond Ticker", "AGG")
-
-    run = st.button("▶  Esegui Backtest", use_container_width=True)
-
-    if run and total_weight == 100:
+   if total_weight == 100:
         valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
         valid_assets = [p[0] for p in valid_pairs]
         w_norm = [p[1] / 100 for p in valid_pairs]
@@ -760,83 +729,99 @@ elif choice == "Portfolio Backtest":
 
         with st.spinner("Download dati storici..."):
             try:
-                raw = download_data(tickers_to_dl, start=start)
-                if isinstance(raw.columns, pd.MultiIndex):
-                    data = raw['Close']
+                # Scarica ogni ticker singolarmente e assembla
+                frames = {}
+                for tkr in tickers_to_dl:
+                    try:
+                        raw_single = yf.download(tkr, start=start, auto_adjust=True, progress=False)
+                        if not raw_single.empty:
+                            if isinstance(raw_single.columns, pd.MultiIndex):
+                                frames[tkr] = raw_single['Close'].squeeze()
+                            else:
+                                frames[tkr] = raw_single['Close'].squeeze()
+                        else:
+                            st.warning(f"⚠️ Nessun dato per {tkr} — escluso dal calcolo.")
+                    except Exception as e:
+                        st.warning(f"⚠️ Errore scaricando {tkr}: {e}")
+
+                if not frames:
+                    st.error("Nessun dato scaricato.")
                 else:
-                    data = raw
+                    data = pd.DataFrame(frames)
+                    data = data.dropna(how='all').ffill()
+                    norm = (data / data.iloc[0]) - 1
 
-                data = data.dropna(how='all').ffill()
-                norm = (data / data.iloc[0]) - 1
+                    # Strategia
+                    strat_df = pd.DataFrame(index=norm.index)
+                    for i, a in enumerate(valid_assets):
+                        if a in norm.columns:
+                            strat_df[a] = norm[a] * w_norm[i]
+                        else:
+                            st.warning(f"⚠️ {a} non disponibile nei dati scaricati.")
+                    strategy = strat_df.sum(axis=1)
 
-                strat_df = pd.DataFrame(index=norm.index)
-                for i, a in enumerate(valid_assets):
-                    if a in norm.columns:
-                        strat_df[a] = norm[a] * w_norm[i]
-                strategy = strat_df.sum(axis=1)
+                    if bench is None:
+                        bench_series = norm[bench_eq.upper()] * 0.6 + norm[bench_bond.upper()] * 0.4
+                        bench_name = f"60% {bench_eq.upper()} + 40% {bench_bond.upper()}"
+                        bench_col = None
+                    else:
+                        bench_col = bench
+                        bench_name = bench_label
 
-                if bench is None:
-                    bench_series = norm[bench_eq.upper()] * 0.6 + norm[bench_bond.upper()] * 0.4
-                    bench_name = f"60% {bench_eq.upper()} + 40% {bench_bond.upper()}"
-                    bench_col = None
-                else:
-                    bench_col = bench
-                    bench_name = bench_label
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=strategy.index, y=strategy * 100,
+                                             name="📐 La Tua Strategia",
+                                             line=dict(width=3, color="#4A9EFF"),
+                                             fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'))
 
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=strategy.index, y=strategy * 100,
-                                         name="📐 La Tua Strategia",
-                                         line=dict(width=3, color="#4A9EFF"),
-                                         fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'))
+                    if bench_col and bench_col in norm.columns:
+                        fig.add_trace(go.Scatter(x=norm.index, y=norm[bench_col] * 100,
+                                                 name=f"📌 {bench_name}",
+                                                 line=dict(width=2, dash='dash', color='#FFFFFF')))
+                    elif bench is None:
+                        fig.add_trace(go.Scatter(x=bench_series.index, y=bench_series * 100,
+                                                 name=f"📌 {bench_name}",
+                                                 line=dict(width=2, dash='dash', color='#FFFFFF')))
 
-                if bench_col and bench_col in norm.columns:
-                    fig.add_trace(go.Scatter(x=norm.index, y=norm[bench_col] * 100,
-                                             name=f"📌 {bench_name}",
-                                             line=dict(width=2, dash='dash', color='#FFFFFF')))
-                elif bench is None:
-                    fig.add_trace(go.Scatter(x=bench_series.index, y=bench_series * 100,
-                                             name=f"📌 {bench_name}",
-                                             line=dict(width=2, dash='dash', color='#FFFFFF')))
+                    asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
+                                    '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
+                    for idx, a in enumerate(valid_assets):
+                        if a in norm.columns:
+                            fig.add_trace(go.Scatter(x=norm.index, y=norm[a] * 100,
+                                                     name=f"  {a} ({weight_list[idx]}%)",
+                                                     line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
+                                                     opacity=0.5))
 
-                asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
-                                '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
-                for idx, a in enumerate(valid_assets):
-                    if a in norm.columns:
-                        fig.add_trace(go.Scatter(x=norm.index, y=norm[a] * 100,
-                                                 name=f"  {a} ({weight_list[idx]}%)",
-                                                 line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
-                                                 opacity=0.5))
+                    fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+                    fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento Cumulativo (%)",
+                                      yaxis_title="Rendimento (%)", height=480)
+                    st.plotly_chart(fig, use_container_width=True)
 
-                fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento Cumulativo (%)",
-                                  yaxis_title="Rendimento (%)", height=480)
-                st.plotly_chart(fig, use_container_width=True)
+                    st.markdown("#### Statistiche di Performance")
+                    s1, s2, s3, s4 = st.columns(4)
+                    total_ret = strategy.iloc[-1] * 100
+                    annual_ret = ((1 + strategy.iloc[-1]) ** (1 / years) - 1) * 100
+                    daily_rets = strategy.diff().dropna()
+                    vol = daily_rets.std() * (252 ** 0.5) * 100
+                    sharpe = (annual_ret / vol) if vol > 0 else 0
+                    drawdown = ((strategy + 1) / (strategy + 1).cummax() - 1).min() * 100
 
-                st.markdown("#### Statistiche di Performance")
-                s1, s2, s3, s4 = st.columns(4)
-                total_ret = strategy.iloc[-1] * 100
-                annual_ret = ((1 + strategy.iloc[-1]) ** (1 / years) - 1) * 100
-                daily_rets = strategy.diff().dropna()
-                vol = daily_rets.std() * (252 ** 0.5) * 100
-                sharpe = (annual_ret / vol) if vol > 0 else 0
-                drawdown = ((strategy + 1) / (strategy + 1).cummax() - 1).min() * 100
+                    s1.metric("Rendimento Totale", f"{total_ret:+.2f}%")
+                    s2.metric("CAGR (annualizzato)", f"{annual_ret:+.2f}%")
+                    s3.metric("Volatilità Annua", f"{vol:.2f}%")
+                    s4.metric("Max Drawdown", f"{drawdown:.2f}%")
+                    st.metric("Sharpe Ratio (approx)", f"{sharpe:.2f}")
 
-                s1.metric("Rendimento Totale", f"{total_ret:+.2f}%")
-                s2.metric("CAGR (annualizzato)", f"{annual_ret:+.2f}%")
-                s3.metric("Volatilità Annua", f"{vol:.2f}%")
-                s4.metric("Max Drawdown", f"{drawdown:.2f}%")
-                st.metric("Sharpe Ratio (approx)", f"{sharpe:.2f}")
-
-                if bench_col and bench_col in norm.columns:
-                    bench_total = norm[bench_col].iloc[-1] * 100
-                    delta_vs_bench = total_ret - bench_total
-                    st.metric(f"Alpha vs {bench_name}", f"{delta_vs_bench:+.2f}%",
-                              delta="Sovraperforma" if delta_vs_bench > 0 else "Sottoperforma")
+                    if bench_col and bench_col in norm.columns:
+                        bench_total = norm[bench_col].iloc[-1] * 100
+                        delta_vs_bench = total_ret - bench_total
+                        st.metric(f"Alpha vs {bench_name}", f"{delta_vs_bench:+.2f}%",
+                                  delta="Sovraperforma" if delta_vs_bench > 0 else "Sottoperforma")
 
             except Exception as e:
                 st.error(f"Errore durante il backtest: {e}")
 
-    elif run and total_weight != 100:
+    elif total_weight != 100:
         st.error("Correggi i pesi prima di eseguire il backtest (devono sommare a 100%).")
 
 
