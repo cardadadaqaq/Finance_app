@@ -396,15 +396,47 @@ def show_bloomberg_insights(target):
 
             with col_news:
                 st.markdown("#### Latest News")
+                yahoo_url = f"https://finance.yahoo.com/quote/{target}/news/"
+                st.markdown(
+                    f"""
+                    <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:6px;
+                                padding:1rem; margin-bottom:0.8rem;'>
+                        <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
+                                    color:#4A9EFF; letter-spacing:0.15em; margin-bottom:6px;'>
+                            FONTE ESTERNA
+                        </div>
+                        <div style='font-size:0.88rem; color:#E8EDF5; margin-bottom:10px;'>
+                            Le notizie in tempo reale su <b>{target}</b> sono disponibili
+                            direttamente su Yahoo Finance.
+                        </div>
+                        <a href='{yahoo_url}' target='_blank'
+                           style='display:inline-block; background:#1E3A5F; color:#FFFFFF;
+                                  border:1px solid #4A9EFF; border-radius:4px;
+                                  padding:6px 14px; font-family: IBM Plex Mono, monospace;
+                                  font-size:0.78rem; letter-spacing:0.06em;
+                                  text-decoration:none;'>
+                            📰 Apri News su Yahoo Finance →
+                        </a>
+                    </div>
+                    <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
+                                color:#A8BDD4; margin-top:0.5rem;'>
+                        Link diretto alla sezione news di {target}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                # Prova comunque a caricare titoli da yfinance come fallback
                 try:
                     news_items = get_ticker_news(target)
                     if news_items:
-                        for n in news_items[:5]:
-                            st.markdown(f"→ [{n.get('title', 'No title')}]({n.get('link', '#')})")
-                    else:
-                        st.info("Nessuna news disponibile.")
+                        st.markdown("**Titoli recenti (yfinance):**")
+                        for n in news_items[:4]:
+                            title = n.get('title', '')
+                            link = n.get('link', yahoo_url)
+                            if title:
+                                st.markdown(f"→ [{title}]({link})")
                 except Exception:
-                    st.info("News non disponibili.")
+                    pass
 
             st.markdown("---")
 
@@ -720,8 +752,9 @@ elif choice == "Portfolio Backtest":
     run = st.button("▶  Esegui Backtest", use_container_width=True)
 
     if run and total_weight == 100:
-        valid_assets = [a for a in asset_list if a]
-        w_norm = [weight_list[i] / 100 for i, a in enumerate(asset_list) if a]
+       valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
+        valid_assets = [p[0] for p in valid_pairs]
+        w_norm = [p[1] / 100 for p in valid_pairs]
         start = datetime.now() - timedelta(days=365 * years)
         tickers_to_dl = valid_assets + ([bench] if bench else [bench_eq.upper(), bench_bond.upper()])
 
