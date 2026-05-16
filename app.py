@@ -112,12 +112,26 @@ st.markdown("""
         border: 1px solid #1E3A5F !important;
         color: #FFFFFF !important;
     }
+    /* Dropdown aperto: sfondo bianco testo nero */
     [data-baseweb="popover"], [data-baseweb="menu"] {
-        background-color: #0D1F38 !important;
+        background-color: #FFFFFF !important;
         border: 1px solid #1E3A5F !important;
     }
-    [data-baseweb="option"] { background-color: #0D1F38 !important; color: #FFFFFF !important; }
-    [data-baseweb="option"]:hover { background-color: #1E3A5F !important; }
+    [data-baseweb="option"] {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+    }
+    [data-baseweb="option"]:hover {
+        background-color: #E8F0FF !important;
+        color: #000000 !important;
+    }
+    li[role="option"] {
+        color: #000000 !important;
+        background-color: #FFFFFF !important;
+    }
+    li[role="option"]:hover {
+        background-color: #E8F0FF !important;
+    }
     .dataframe, table {
         background-color: #0D1F38 !important;
         color: #FFFFFF !important;
@@ -221,7 +235,6 @@ def page_title(text, subtitle=""):
 
 
 def interactive_xaxis():
-    """Restituisce un xaxis dict con rangeslider e rangeselector pronti."""
     return dict(
         gridcolor='#111E33',
         showgrid=True,
@@ -263,8 +276,13 @@ PLOTLY_LAYOUT = dict(
 @st.cache_data(ttl=300, show_spinner=False)
 def get_ticker_info(ticker):
     try:
-        info = yf.Ticker(ticker).info
-        if not info:
+        t = yf.Ticker(ticker)
+        info = t.info
+        if not info or len(info) <= 3:
+            import time
+            time.sleep(0.4)
+            info = t.info
+        if not info or len(info) <= 3:
             return {}
         has_price = (info.get('regularMarketPrice') is not None or
                      info.get('currentPrice') is not None or
@@ -296,7 +314,6 @@ def get_ticker_news(ticker):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def download_single(ticker, start_str=None, period=None):
-    """Scarica un singolo ticker — più affidabile del bulk per certi ETF."""
     try:
         if period:
             raw = yf.download(ticker, period=period, auto_adjust=True, progress=False)
@@ -398,6 +415,18 @@ def show_bloomberg_insights(target):
     with st.spinner(f"Recupero dati per {target}..."):
         inf = get_ticker_info(target)
 
+        # Secondo tentativo diretto senza cache se il primo fallisce
+        if not inf:
+            try:
+                import time
+                time.sleep(0.5)
+                t = yf.Ticker(target)
+                inf = t.info
+                if not inf or len(inf) <= 3:
+                    inf = {}
+            except Exception:
+                inf = {}
+
         if not inf:
             st.error(f"❌  Ticker **{target}** non trovato. Verifica il simbolo.")
             st.markdown("""
@@ -408,7 +437,7 @@ def show_bloomberg_insights(target):
                 - Germania: `SAP.DE`, `BMW.DE`
                 - ETF: `VWCE.DE`, `SWDA.MI`
             """)
-            st.stop()
+            return
 
         company_name = inf.get('longName') or inf.get('shortName') or inf.get('symbol')
         current_price = (inf.get('currentPrice') or inf.get('regularMarketPrice')
@@ -549,12 +578,10 @@ def show_bloomberg_insights(target):
                 s = download_single(tkr, period="1y")
                 if not s.empty:
                     frames[tkr] = s
-
             if frames:
                 peer_data = pd.DataFrame(frames).dropna(how='all').ffill()
                 peer_norm = ((peer_data / peer_data.iloc[0]) - 1) * 100
                 peer_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6', '#1ABC9C']
-
                 fig_peer = go.Figure()
                 for idx, col in enumerate(peer_norm.columns):
                     fig_peer.add_trace(go.Scatter(
@@ -684,14 +711,11 @@ elif choice == "Multi-Compare":
                         frames[tkr] = s
                     else:
                         st.warning(f"⚠️ Nessun dato per {tkr}")
-
                 if frames:
                     data = pd.DataFrame(frames).dropna(how='all').ffill()
                     rets = ((data / data.iloc[0]) - 1) * 100
-
                     colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
                               '#1ABC9C', '#E67E22', '#3498DB', '#EC407A', '#AB47BC']
-
                     fig = go.Figure()
                     for idx, col in enumerate(rets.columns):
                         fig.add_trace(go.Scatter(
@@ -699,7 +723,6 @@ elif choice == "Multi-Compare":
                             line=dict(width=2, color=colors[idx % len(colors)]),
                             hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>"
                         ))
-
                     fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
                     fig.update_layout(
                         **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
@@ -708,7 +731,6 @@ elif choice == "Multi-Compare":
                         height=460
                     )
                     st.plotly_chart(fig, use_container_width=True)
-
                     st.markdown("#### Riepilogo Rendimenti")
                     summary = pd.DataFrame({
                         "Rendimento Totale (%)": rets.iloc[-1].round(2),
@@ -790,7 +812,6 @@ elif choice == "Portfolio Backtest":
         valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
         valid_assets = [p[0] for p in valid_pairs]
         w_norm = [p[1] / 100 for p in valid_pairs]
-
         start_str = (datetime.now() - timedelta(days=365 * years)).strftime("%Y-%m-%d")
         bench_tickers = [bench] if bench else [bench_eq.upper(), bench_bond.upper()]
         all_tickers = valid_assets + bench_tickers
@@ -803,7 +824,7 @@ elif choice == "Portfolio Backtest":
                     if not s.empty:
                         frames[tkr] = s
                     else:
-                        st.warning(f"⚠️ Nessun dato per {tkr} — escluso dal calcolo.")
+                        st.warning(f"⚠️ Nessun dato per {tkr} — escluso.")
 
                 if not frames:
                     st.error("Nessun dato scaricato.")
@@ -816,20 +837,17 @@ elif choice == "Portfolio Backtest":
                         if a in norm.columns:
                             strat_df[a] = norm[a] * w_norm[i]
                         else:
-                            st.warning(f"⚠️ {a} non presente nei dati — peso ignorato.")
+                            st.warning(f"⚠️ {a} non presente — peso ignorato.")
                     strategy = strat_df.sum(axis=1)
 
                     if bench is None:
-                        beq = bench_eq.upper()
-                        bbd = bench_bond.upper()
+                        beq, bbd = bench_eq.upper(), bench_bond.upper()
                         if beq in norm.columns and bbd in norm.columns:
                             bench_series = norm[beq] * 0.6 + norm[bbd] * 0.4
                             bench_name = f"60% {beq} + 40% {bbd}"
                             bench_col = None
                         else:
-                            bench_series = None
-                            bench_name = ""
-                            bench_col = None
+                            bench_series, bench_name, bench_col = None, "", None
                     else:
                         bench_col = bench
                         bench_name = bench_label
@@ -844,7 +862,6 @@ elif choice == "Portfolio Backtest":
                         fill='tozeroy', fillcolor='rgba(74,158,255,0.07)',
                         hovertemplate="%{x|%d %b %Y}<br><b>Strategia: %{y:.2f}%</b><extra></extra>"
                     ))
-
                     if bench_col and bench_col in norm.columns:
                         fig.add_trace(go.Scatter(
                             x=norm.index, y=norm[bench_col] * 100,
@@ -859,7 +876,6 @@ elif choice == "Portfolio Backtest":
                             line=dict(width=2, dash='dash', color='#FFFFFF'),
                             hovertemplate="%{x|%d %b %Y}<br>Benchmark: %{y:.2f}%<extra></extra>"
                         ))
-
                     asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
                                     '#1ABC9C', '#E67E22', '#EC407A', '#AB47BC']
                     for idx, a in enumerate(valid_assets):
@@ -871,7 +887,6 @@ elif choice == "Portfolio Backtest":
                                 opacity=0.5,
                                 hovertemplate="%{x|%d %b %Y}<br>" + a + ": %{y:.2f}%<extra></extra>"
                             ))
-
                     fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
                     fig.update_layout(
                         **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
@@ -941,49 +956,152 @@ elif choice == "Portfolio Backtest":
                     )
                     st.plotly_chart(fig_dd, use_container_width=True)
 
-                    # Suggerimenti
+                    # Correlazione tra asset
                     st.markdown("---")
-                    st.markdown("#### 💡 Suggerimenti per Migliorare la Performance")
+                    st.markdown("#### Matrice di Correlazione")
+                    available = [a for a in valid_assets if a in norm.columns]
+                    if len(available) >= 2:
+                        corr_df = norm[available].pct_change().dropna().corr()
+                        fig_corr = go.Figure(go.Heatmap(
+                            z=corr_df.values,
+                            x=corr_df.columns.tolist(),
+                            y=corr_df.index.tolist(),
+                            colorscale=[[0, '#E74C3C'], [0.5, '#0D1F38'], [1, '#2ECC71']],
+                            zmin=-1, zmax=1,
+                            text=corr_df.round(2).values,
+                            texttemplate="%{text}",
+                            hovertemplate="%{x} / %{y}: %{z:.2f}<extra></extra>"
+                        ))
+                        fig_corr.update_layout(
+                            **PLOTLY_LAYOUT,
+                            height=350,
+                            title="Correlazione tra Asset (rendimenti giornalieri)"
+                        )
+                        st.plotly_chart(fig_corr, use_container_width=True)
+
+                    # SUGGERIMENTI SPECIFICI
+                    st.markdown("---")
+                    st.markdown("#### 💡 Analisi e Suggerimenti Specifici")
 
                     suggestions = []
 
-                    if sharpe < 0.5:
+                    # Sharpe
+                    if sharpe < 0:
                         suggestions.append(
-                            "📉 <b>Sharpe Ratio basso</b> — Il rendimento aggiustato per il rischio è debole. "
-                            "Considera di aggiungere asset decorrelati come obbligazioni (AGG, TLT) o oro (GLD)."
+                            f"🔴 <b>Sharpe negativo ({sharpe:.2f})</b> — Il portafoglio sta distruggendo valore "
+                            f"rispetto al risk-free. Con una volatilità del {vol:.1f}% e rendimento negativo "
+                            f"stai assumendo rischio senza compensazione. Individua l'asset con il peggior "
+                            f"contributo al rendimento (guarda il grafico sopra) e considera di ridurne il peso "
+                            f"o sostituirlo con un ETF a bassa volatilità come USMV o SPLV."
                         )
-                    if vol > 20:
+                    elif sharpe < 0.5:
                         suggestions.append(
-                            f"📊 <b>Volatilità elevata ({vol:.1f}%)</b> — Il portafoglio è molto volatile. "
-                            "Una quota di asset difensivi (BND, USMV) o materie prime potrebbe ridurla."
+                            f"📉 <b>Sharpe inefficiente ({sharpe:.2f})</b> — Per ogni punto percentuale di volatilità "
+                            f"stai ottenendo solo {sharpe*vol/100:.2f}% di rendimento extra. "
+                            f"La frontiera efficiente di Markowitz suggerisce che potresti ottenere lo stesso "
+                            f"rendimento con meno rischio aggiungendo asset decorrelati: oro (correlazione storica "
+                            f"con S&P ~0.0), TIPS inflation-linked, o REITs internazionali."
                         )
-                    if drawdown < -30:
+                    elif sharpe >= 1.5:
                         suggestions.append(
-                            f"⚠️ <b>Max Drawdown significativo ({drawdown:.1f}%)</b> — Il portafoglio ha subito cali pesanti. "
-                            "Valuta strategie di hedging o un ribilanciamento verso asset a bassa correlazione."
+                            f"🏆 <b>Sharpe eccellente ({sharpe:.2f})</b> — Attenzione al survivorship bias: "
+                            f"Sharpe così alti su finestre temporali recenti tendono a normalizzarsi. "
+                            f"Verifica se il periodo analizzato include il 2020-2024 (bull market eccezionale). "
+                            f"Testa la stessa strategia su un orizzonte 15-20 anni per una stima più robusta."
                         )
-                    if delta_vs_bench is not None and delta_vs_bench < 0:
+                    else:
                         suggestions.append(
-                            f"🔴 <b>Sottoperformance vs benchmark ({delta_vs_bench:+.1f}%)</b> — "
-                            "Il tuo portafoglio ha reso meno del benchmark. Rivedi i pesi degli asset "
-                            "con rendimento negativo e considera di aumentare l'esposizione ai più performanti."
+                            f"✅ <b>Sharpe accettabile ({sharpe:.2f})</b> — Profilo rischio/rendimento nella norma "
+                            f"per un portafoglio diversificato. L'obiettivo dovrebbe essere superare 1.0 "
+                            f"per battere costantemente il mercato su base risk-adjusted."
                         )
+
+                    # Volatilità con confronto esplicito
+                    if vol > 25:
+                        suggestions.append(
+                            f"📊 <b>Volatilità molto alta ({vol:.1f}% annua vs ~16% S&P 500 storico)</b> — "
+                            f"In uno scenario di stress tipo 2008 o Covid 2020, potresti sperimentare un "
+                            f"drawdown temporaneo superiore al 50%. Una regola pratica: ogni 1% di volatilità "
+                            f"in più rispetto al benchmark richiede +0.1 di Sharpe per giustificarsi. "
+                            f"Valuta di aggiungere un 15-20% in obbligazioni aggregate (AGG) o in asset reali."
+                        )
+                    elif vol > 15:
+                        suggestions.append(
+                            f"📊 <b>Volatilità in linea con l'azionario ({vol:.1f}%)</b> — "
+                            f"Se il tuo orizzonte è inferiore a 7 anni, considera di ridurre l'esposizione "
+                            f"ciclica introducendo un buffer del 20-30% in bond o in asset a bassa correlazione. "
+                            f"Con orizzonte lungo (10+ anni) la volatilità attuale è accettabile."
+                        )
+
+                    # Drawdown con benchmarking storico
+                    if drawdown < -40:
+                        suggestions.append(
+                            f"⚠️ <b>Drawdown estremo ({drawdown:.1f}%)</b> — Per confronto: il Nasdaq ha impiegato "
+                            f"15 anni a recuperare dal -78% del 2000-2002. Un drawdown così profondo "
+                            f"implica che dovresti guadagnare {abs(drawdown)/(100+drawdown)*100:.1f}% "
+                            f"dal minimo solo per tornare al pareggio. Analizza quale asset ha generato "
+                            f"il drawdown maggiore dalla matrice di correlazione e considera un position sizing "
+                            f"proporzionale al rischio (Kelly Criterion o risk parity)."
+                        )
+                    elif drawdown < -20:
+                        suggestions.append(
+                            f"⚠️ <b>Drawdown significativo ({drawdown:.1f}%)</b> — "
+                            f"Per recuperare servono {abs(drawdown)/(100+drawdown)*100:.1f}% dal minimo. "
+                            f"Un ribilanciamento trimestrale sistematico (sell high, buy low) tende a ridurre "
+                            f"il drawdown medio del 15-25% su orizzonti lunghi senza sacrificare rendimento."
+                        )
+
+                    # Concentrazione con teoria
                     if len(valid_assets) < 3:
                         suggestions.append(
-                            "🔀 <b>Portafoglio poco diversificato</b> — Meno di 3 asset. "
-                            "Aggiungere classi decorrelate (es. obbligazioni, real estate, commodities) "
-                            "riduce il rischio senza sacrificare necessariamente il rendimento."
+                            f"🔀 <b>Concentrazione elevata ({len(valid_assets)} asset)</b> — "
+                            f"Con 2 soli asset il rischio idiosincratico pesa ancora significativamente. "
+                            f"La ricerca di Fama-French mostra che gran parte dei benefici della diversificazione "
+                            f"si ottiene con 8-15 asset non correlati. Considera di aggiungere un'esposizione "
+                            f"a small-cap value (VBR), mercati emergenti (VWO) o commodities (PDBC) "
+                            f"per catturare premi di rischio aggiuntivi."
                         )
-                    if sharpe >= 1.0:
-                        suggestions.append(
-                            f"✅ <b>Sharpe Ratio solido ({sharpe:.2f})</b> — Il portafoglio offre un buon "
-                            "rendimento aggiustato per il rischio. Mantieni la struttura e rivedi i pesi annualmente."
-                        )
-                    if delta_vs_bench is not None and delta_vs_bench > 5:
-                        suggestions.append(
-                            f"🟢 <b>Alfa positivo ({delta_vs_bench:+.1f}%)</b> — Stai battendo il benchmark. "
-                            "Considera di consolidare i profitti o aumentare la diversificazione per proteggere i guadagni."
-                        )
+
+                    # Correlazione alta tra asset (se disponibile)
+                    if len(available) >= 2:
+                        corr_vals = corr_df.values
+                        import numpy as np
+                        upper = corr_vals[np.triu_indices_from(corr_vals, k=1)]
+                        avg_corr = upper.mean() if len(upper) > 0 else 0
+                        if avg_corr > 0.7:
+                            suggestions.append(
+                                f"🔗 <b>Correlazione media alta tra asset ({avg_corr:.2f})</b> — "
+                                f"Gli asset del portafoglio si muovono in modo molto simile, "
+                                f"riducendo i benefici della diversificazione. In una fase di sell-off "
+                                f"generalizzato scenderebbero tutti insieme. Considera asset con correlazione "
+                                f"negativa o nulla: oro (GLD), Treasury a lungo termine (TLT), o volatilità (VXX)."
+                            )
+                        elif avg_corr < 0.2:
+                            suggestions.append(
+                                f"🌐 <b>Ottima decorrelazione tra asset (corr. media: {avg_corr:.2f})</b> — "
+                                f"Il portafoglio è ben diversificato in termini di correlazione. "
+                                f"Questo è uno dei fattori più importanti per la resilienza in fasi di stress."
+                            )
+
+                    # Alpha vs benchmark
+                    if delta_vs_bench is not None:
+                        if delta_vs_bench < -5:
+                            suggestions.append(
+                                f"🔴 <b>Sottoperformance rilevante vs {bench_name} ({delta_vs_bench:+.1f}%)</b> — "
+                                f"Stai pagando un costo opportunità significativo rispetto al benchmark. "
+                                f"Prima di modificare la strategia, verifica se la sottoperformance è concentrata "
+                                f"in un periodo specifico (es. post-2022) o è strutturale. "
+                                f"Se strutturale, un semplice ETF sul benchmark avrebbe fatto meglio a costo zero."
+                            )
+                        elif delta_vs_bench > 10:
+                            suggestions.append(
+                                f"🟢 <b>Alpha forte vs {bench_name} ({delta_vs_bench:+.1f}%)</b> — "
+                                f"Risultato eccellente, ma attenzione: alfa così elevati tendono a ridursi "
+                                f"nel tempo per mean reversion. Considera di 'cristallizzare' parte dei guadagni "
+                                f"aumentando la quota in asset difensivi, o implementando un trailing stop "
+                                f"sull'asset che ha contribuito maggiormente alla sovraperformance."
+                            )
+
                     if not suggestions:
                         suggestions.append(
                             "ℹ️ Il portafoglio ha parametri nella norma. "
@@ -993,7 +1111,8 @@ elif choice == "Portfolio Backtest":
                     for sg in suggestions:
                         st.markdown(
                             f"<div style='background:#0D1F38; border-left:3px solid #4A9EFF; "
-                            f"border-radius:4px; padding:0.8rem 1rem; margin-bottom:0.6rem;'>{sg}</div>",
+                            f"border-radius:4px; padding:0.8rem 1rem; margin-bottom:0.6rem; "
+                            f"font-size:0.88rem; line-height:1.6;'>{sg}</div>",
                             unsafe_allow_html=True
                         )
 
@@ -1050,7 +1169,6 @@ elif choice == "Stock Screener":
                 "Communication Services","Utilities","Real Estate","Basic Materials"
             ])
 
-        # Filtro prodotto/servizio — ricerca testuale libera
         product_filter = st.text_input(
             "Filtra per prodotto / servizio / business (lascia vuoto per ignorare)",
             "",
@@ -1092,11 +1210,9 @@ elif choice == "Stock Screener":
                     price     = (info.get('currentPrice') or info.get('regularMarketPrice')
                                  or info.get('previousClose'))
 
-                    # Filtro settore
                     if sector_filter != "Tutti" and sector_v != sector_filter:
                         continue
 
-                    # Filtro prodotto/servizio — ricerca in business summary, industria, nome
                     if product_filter.strip():
                         keyword = product_filter.strip().lower()
                         business_text = (
@@ -1108,7 +1224,6 @@ elif choice == "Stock Screener":
                         if keyword not in business_text:
                             continue
 
-                    # Filtri numerici
                     if pe        is not None and pe              > pe_max:        continue
                     if pb        is not None and pb              > pb_max:        continue
                     if ps        is not None and ps              > ps_max:        continue
