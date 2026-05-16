@@ -220,6 +220,29 @@ def page_title(text, subtitle=""):
     st.markdown(f"<div class='page-title'>{text}</div>{sub_html}", unsafe_allow_html=True)
 
 
+def interactive_xaxis():
+    """Restituisce un xaxis dict con rangeslider e rangeselector pronti."""
+    return dict(
+        gridcolor='#111E33',
+        showgrid=True,
+        zeroline=False,
+        rangeslider=dict(visible=True, bgcolor="#060E1E", thickness=0.04),
+        rangeselector=dict(
+            bgcolor="#0D1F38",
+            activecolor="#4A9EFF",
+            bordercolor="#1E3A5F",
+            font=dict(color="#FFFFFF", size=10),
+            buttons=[
+                dict(count=1,  label="1M", step="month", stepmode="backward"),
+                dict(count=6,  label="6M", step="month", stepmode="backward"),
+                dict(count=1,  label="1A", step="year",  stepmode="backward"),
+                dict(count=3,  label="3A", step="year",  stepmode="backward"),
+                dict(step="all", label="Tutto"),
+            ]
+        )
+    )
+
+
 PLOTLY_LAYOUT = dict(
     template="plotly_dark",
     paper_bgcolor='rgba(6,14,30,0.0)',
@@ -230,6 +253,7 @@ PLOTLY_LAYOUT = dict(
     yaxis=dict(gridcolor='#111E33', showgrid=True, zeroline=False),
     margin=dict(l=40, r=20, t=40, b=40),
     hovermode="x unified",
+    dragmode="zoom",
 )
 
 
@@ -245,7 +269,8 @@ def get_ticker_info(ticker):
         has_price = (info.get('regularMarketPrice') is not None or
                      info.get('currentPrice') is not None or
                      info.get('previousClose') is not None)
-        has_name = info.get('longName') is not None or info.get('shortName') is not None
+        has_name = (info.get('longName') is not None or
+                    info.get('shortName') is not None)
         if not has_price and not has_name:
             return {}
         return info
@@ -270,28 +295,24 @@ def get_ticker_news(ticker):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def download_data(tickers, start=None, period=None):
-    try:
-        if period:
-            return yf.download(tickers, period=period, auto_adjust=True, progress=False)
-        return yf.download(tickers, start=start, auto_adjust=True, progress=False)
-    except Exception:
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def download_single(ticker, start=None, period=None):
+def download_single(ticker, start_str=None, period=None):
     """Scarica un singolo ticker — più affidabile del bulk per certi ETF."""
     try:
         if period:
             raw = yf.download(ticker, period=period, auto_adjust=True, progress=False)
         else:
-            raw = yf.download(ticker, start=start, auto_adjust=True, progress=False)
+            raw = yf.download(ticker, start=start_str, auto_adjust=True, progress=False)
         if raw.empty:
             return pd.Series(dtype=float, name=ticker)
         if isinstance(raw.columns, pd.MultiIndex):
-            return raw['Close'].squeeze()
-        return raw['Close'].squeeze()
+            close = raw['Close']
+            if isinstance(close, pd.DataFrame):
+                return close.iloc[:, 0].rename(ticker)
+            return close.squeeze()
+        close = raw['Close']
+        if isinstance(close, pd.DataFrame):
+            return close.iloc[:, 0].rename(ticker)
+        return close.squeeze()
     except Exception:
         return pd.Series(dtype=float, name=ticker)
 
@@ -394,7 +415,6 @@ def show_bloomberg_insights(target):
                          or inf.get('previousClose'))
         display_name = company_name if company_name else target
 
-        # HEADER
         st.markdown(f"""
             <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:8px;
                         padding:1.2rem 1.5rem; margin-bottom:1.5rem;'>
@@ -408,7 +428,6 @@ def show_bloomberg_insights(target):
             </div>
         """, unsafe_allow_html=True)
 
-        # KPI
         k1, k2, k3, k4, k5 = st.columns(5)
         k1.metric("Prezzo", f"{current_price:,.2f}" if current_price else "N/A")
         k2.metric("P/E Forward", f"{inf.get('forwardPE'):.1f}" if inf.get('forwardPE') else "N/A")
@@ -418,7 +437,6 @@ def show_bloomberg_insights(target):
 
         st.markdown("---")
 
-        # DESCRIZIONE + NEWS
         col_desc, col_news = st.columns([2, 1])
         with col_desc:
             st.markdown("#### Business Summary")
@@ -432,9 +450,7 @@ def show_bloomberg_insights(target):
                 <div style='background:#0D1F38; border:1px solid #1E3A5F; border-radius:6px;
                             padding:1rem; margin-bottom:0.8rem;'>
                     <div style='font-family: IBM Plex Mono, monospace; font-size:0.7rem;
-                                color:#4A9EFF; letter-spacing:0.15em; margin-bottom:6px;'>
-                        FONTE ESTERNA
-                    </div>
+                                color:#4A9EFF; letter-spacing:0.15em; margin-bottom:6px;'>FONTE ESTERNA</div>
                     <div style='font-size:0.88rem; color:#E8EDF5; margin-bottom:10px;'>
                         Notizie in tempo reale su <b>{target}</b> disponibili su Yahoo Finance.
                     </div>
@@ -461,7 +477,6 @@ def show_bloomberg_insights(target):
 
         st.markdown("---")
 
-        # PEER ANALYSIS
         st.markdown("#### Fundamental Peer Analysis")
         peers_in = st.text_input("Competitors (separati da virgola)", "AMD, INTC, AVGO",
                                  key=f"peers_{target}")
@@ -494,7 +509,6 @@ def show_bloomberg_insights(target):
 
         st.markdown("---")
 
-        # SECTOR INFO
         st.markdown("#### Sector & Industry")
         sector = inf.get('sector', 'N/A')
         industry = inf.get('industry', 'N/A')
@@ -509,7 +523,6 @@ def show_bloomberg_insights(target):
 
         st.markdown("---")
 
-        # SUPPLY CHAIN
         st.markdown("#### Supply Chain & Ecosystem")
         sc_data = SUPPLY_CHAIN_MAP.get(sector, None)
         if sc_data:
@@ -528,7 +541,6 @@ def show_bloomberg_insights(target):
 
         st.markdown("---")
 
-        # GRAFICO PEERS
         st.markdown("#### Andamento relativo vs Peers (12 mesi)")
         peer_tickers = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
         try:
@@ -548,11 +560,16 @@ def show_bloomberg_insights(target):
                     fig_peer.add_trace(go.Scatter(
                         x=peer_norm.index, y=peer_norm[col], name=col,
                         line=dict(width=2.5 if col == target else 1.5,
-                                  color=peer_colors[idx % len(peer_colors)])
+                                  color=peer_colors[idx % len(peer_colors)]),
+                        hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>"
                     ))
                 fig_peer.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                fig_peer.update_layout(**PLOTLY_LAYOUT, yaxis_title="Rendimento % (norm.)",
-                                       height=380, title=f"Performance relativa: {target} vs peers (1 anno)")
+                fig_peer.update_layout(
+                    **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
+                    yaxis_title="Rendimento % (norm.)",
+                    height=420,
+                    title=f"Performance relativa: {target} vs peers (1 anno)"
+                )
                 st.plotly_chart(fig_peer, use_container_width=True)
         except Exception:
             st.info("Grafico peers non disponibile.")
@@ -655,14 +672,14 @@ elif choice == "Multi-Compare":
         val = st.slider("Durata", min_value=1, max_value=24 if horizon == "Mesi" else 10, value=12)
 
     tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
-    start = datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)
+    start_str = (datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)).strftime("%Y-%m-%d")
 
     if tk_list:
         with st.spinner("Download dati..."):
             try:
                 frames = {}
                 for tkr in tk_list:
-                    s = download_single(tkr, start=start)
+                    s = download_single(tkr, start_str=start_str)
                     if not s.empty:
                         frames[tkr] = s
                     else:
@@ -677,12 +694,19 @@ elif choice == "Multi-Compare":
 
                     fig = go.Figure()
                     for idx, col in enumerate(rets.columns):
-                        fig.add_trace(go.Scatter(x=rets.index, y=rets[col], name=col,
-                                                 line=dict(width=2, color=colors[idx % len(colors)])))
+                        fig.add_trace(go.Scatter(
+                            x=rets.index, y=rets[col], name=col,
+                            line=dict(width=2, color=colors[idx % len(colors)]),
+                            hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>"
+                        ))
 
                     fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                    fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento % Normalizzato",
-                                      yaxis_title="Rendimento (%)", xaxis_title="")
+                    fig.update_layout(
+                        **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
+                        title="Rendimento % Normalizzato",
+                        yaxis_title="Rendimento (%)",
+                        height=460
+                    )
                     st.plotly_chart(fig, use_container_width=True)
 
                     st.markdown("#### Riepilogo Rendimenti")
@@ -750,7 +774,6 @@ elif choice == "Portfolio Backtest":
         bench_label = st.selectbox("Benchmark", list(bench_options.keys()))
         bench = bench_options[bench_label]
 
-    # years definito fuori dal with per essere disponibile globalmente
     years = st.slider("Orizzonte temporale (anni)", min_value=1, max_value=20, value=5, key="bt_years")
 
     bench_eq, bench_bond = "SPY", "AGG"
@@ -764,22 +787,19 @@ elif choice == "Portfolio Backtest":
     run = st.button("▶  Esegui Backtest", use_container_width=True)
 
     if run and total_weight == 100:
-        # Costruisci coppie (ticker, peso) saltando slot vuoti — fix disallineamento
         valid_pairs = [(a, weight_list[i]) for i, a in enumerate(asset_list) if a]
         valid_assets = [p[0] for p in valid_pairs]
         w_norm = [p[1] / 100 for p in valid_pairs]
 
-        start = datetime.now() - timedelta(days=365 * years)
-
+        start_str = (datetime.now() - timedelta(days=365 * years)).strftime("%Y-%m-%d")
         bench_tickers = [bench] if bench else [bench_eq.upper(), bench_bond.upper()]
         all_tickers = valid_assets + bench_tickers
 
         with st.spinner("Download dati storici (ticker per ticker)..."):
             try:
-                # Download singolo per ogni ticker — evita drop silenzioso del bulk
                 frames = {}
                 for tkr in all_tickers:
-                    s = download_single(tkr, start=start)
+                    s = download_single(tkr, start_str=start_str)
                     if not s.empty:
                         frames[tkr] = s
                     else:
@@ -791,7 +811,6 @@ elif choice == "Portfolio Backtest":
                     data = pd.DataFrame(frames).dropna(how='all').ffill()
                     norm = (data / data.iloc[0]) - 1
 
-                    # Strategia composita
                     strat_df = pd.DataFrame(index=norm.index)
                     for i, a in enumerate(valid_assets):
                         if a in norm.columns:
@@ -800,7 +819,6 @@ elif choice == "Portfolio Backtest":
                             st.warning(f"⚠️ {a} non presente nei dati — peso ignorato.")
                     strategy = strat_df.sum(axis=1)
 
-                    # Benchmark
                     if bench is None:
                         beq = bench_eq.upper()
                         bbd = bench_bond.upper()
@@ -817,26 +835,29 @@ elif choice == "Portfolio Backtest":
                         bench_name = bench_label
                         bench_series = None
 
-                    # Grafico
+                    # Grafico principale
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=strategy.index, y=strategy * 100,
                         name="📐 La Tua Strategia",
                         line=dict(width=3, color="#4A9EFF"),
-                        fill='tozeroy', fillcolor='rgba(74,158,255,0.07)'
+                        fill='tozeroy', fillcolor='rgba(74,158,255,0.07)',
+                        hovertemplate="%{x|%d %b %Y}<br><b>Strategia: %{y:.2f}%</b><extra></extra>"
                     ))
 
                     if bench_col and bench_col in norm.columns:
                         fig.add_trace(go.Scatter(
                             x=norm.index, y=norm[bench_col] * 100,
                             name=f"📌 {bench_name}",
-                            line=dict(width=2, dash='dash', color='#FFFFFF')
+                            line=dict(width=2, dash='dash', color='#FFFFFF'),
+                            hovertemplate="%{x|%d %b %Y}<br>Benchmark: %{y:.2f}%<extra></extra>"
                         ))
                     elif bench_series is not None:
                         fig.add_trace(go.Scatter(
                             x=bench_series.index, y=bench_series * 100,
                             name=f"📌 {bench_name}",
-                            line=dict(width=2, dash='dash', color='#FFFFFF')
+                            line=dict(width=2, dash='dash', color='#FFFFFF'),
+                            hovertemplate="%{x|%d %b %Y}<br>Benchmark: %{y:.2f}%<extra></extra>"
                         ))
 
                     asset_colors = ['#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
@@ -847,12 +868,17 @@ elif choice == "Portfolio Backtest":
                                 x=norm.index, y=norm[a] * 100,
                                 name=f"  {a} ({valid_pairs[idx][1]}%)",
                                 line=dict(width=1.2, color=asset_colors[idx % len(asset_colors)]),
-                                opacity=0.5
+                                opacity=0.5,
+                                hovertemplate="%{x|%d %b %Y}<br>" + a + ": %{y:.2f}%<extra></extra>"
                             ))
 
                     fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
-                    fig.update_layout(**PLOTLY_LAYOUT, title="Rendimento Cumulativo (%)",
-                                      yaxis_title="Rendimento (%)", height=480)
+                    fig.update_layout(
+                        **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
+                        title="Rendimento Cumulativo (%)",
+                        yaxis_title="Rendimento (%)",
+                        height=500
+                    )
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Statistiche
@@ -871,11 +897,105 @@ elif choice == "Portfolio Backtest":
                     s4.metric("Max Drawdown", f"{drawdown:.2f}%")
                     st.metric("Sharpe Ratio (approx)", f"{sharpe:.2f}")
 
+                    delta_vs_bench = None
                     if bench_col and bench_col in norm.columns:
                         bench_total = norm[bench_col].iloc[-1] * 100
                         delta_vs_bench = total_ret - bench_total
                         st.metric(f"Alpha vs {bench_name}", f"{delta_vs_bench:+.2f}%",
                                   delta="Sovraperforma" if delta_vs_bench > 0 else "Sottoperforma")
+
+                    # TIR
+                    st.markdown("---")
+                    st.markdown("#### Tasso Interno di Rendimento (TIR)")
+                    try:
+                        import numpy_financial as npf
+                        n_months = years * 12
+                        cash_flows_irr = [-100] + [0] * (n_months - 1) + [100 * (1 + strategy.iloc[-1])]
+                        irr_monthly = npf.irr(cash_flows_irr)
+                        irr_annual = (1 + irr_monthly) ** 12 - 1
+                        st.metric("TIR Annualizzato", f"{irr_annual*100:+.2f}%")
+                    except ImportError:
+                        st.metric("TIR (approx = CAGR)", f"{annual_ret:+.2f}%",
+                                  help="Per il TIR esatto: pip install numpy-financial")
+                    except Exception:
+                        st.info("TIR non calcolabile con i dati disponibili.")
+
+                    # Grafico drawdown
+                    st.markdown("---")
+                    st.markdown("#### Drawdown nel Tempo")
+                    dd_series = ((strategy + 1) / (strategy + 1).cummax() - 1) * 100
+                    fig_dd = go.Figure()
+                    fig_dd.add_trace(go.Scatter(
+                        x=dd_series.index, y=dd_series,
+                        name="Drawdown",
+                        fill='tozeroy',
+                        line=dict(color='#E74C3C', width=1.5),
+                        fillcolor='rgba(231,76,60,0.15)',
+                        hovertemplate="%{x|%d %b %Y}<br>Drawdown: %{y:.2f}%<extra></extra>"
+                    ))
+                    fig_dd.update_layout(
+                        **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
+                        yaxis_title="Drawdown (%)",
+                        height=300,
+                        title="Drawdown dalla Massima Equity"
+                    )
+                    st.plotly_chart(fig_dd, use_container_width=True)
+
+                    # Suggerimenti
+                    st.markdown("---")
+                    st.markdown("#### 💡 Suggerimenti per Migliorare la Performance")
+
+                    suggestions = []
+
+                    if sharpe < 0.5:
+                        suggestions.append(
+                            "📉 <b>Sharpe Ratio basso</b> — Il rendimento aggiustato per il rischio è debole. "
+                            "Considera di aggiungere asset decorrelati come obbligazioni (AGG, TLT) o oro (GLD)."
+                        )
+                    if vol > 20:
+                        suggestions.append(
+                            f"📊 <b>Volatilità elevata ({vol:.1f}%)</b> — Il portafoglio è molto volatile. "
+                            "Una quota di asset difensivi (BND, USMV) o materie prime potrebbe ridurla."
+                        )
+                    if drawdown < -30:
+                        suggestions.append(
+                            f"⚠️ <b>Max Drawdown significativo ({drawdown:.1f}%)</b> — Il portafoglio ha subito cali pesanti. "
+                            "Valuta strategie di hedging o un ribilanciamento verso asset a bassa correlazione."
+                        )
+                    if delta_vs_bench is not None and delta_vs_bench < 0:
+                        suggestions.append(
+                            f"🔴 <b>Sottoperformance vs benchmark ({delta_vs_bench:+.1f}%)</b> — "
+                            "Il tuo portafoglio ha reso meno del benchmark. Rivedi i pesi degli asset "
+                            "con rendimento negativo e considera di aumentare l'esposizione ai più performanti."
+                        )
+                    if len(valid_assets) < 3:
+                        suggestions.append(
+                            "🔀 <b>Portafoglio poco diversificato</b> — Meno di 3 asset. "
+                            "Aggiungere classi decorrelate (es. obbligazioni, real estate, commodities) "
+                            "riduce il rischio senza sacrificare necessariamente il rendimento."
+                        )
+                    if sharpe >= 1.0:
+                        suggestions.append(
+                            f"✅ <b>Sharpe Ratio solido ({sharpe:.2f})</b> — Il portafoglio offre un buon "
+                            "rendimento aggiustato per il rischio. Mantieni la struttura e rivedi i pesi annualmente."
+                        )
+                    if delta_vs_bench is not None and delta_vs_bench > 5:
+                        suggestions.append(
+                            f"🟢 <b>Alfa positivo ({delta_vs_bench:+.1f}%)</b> — Stai battendo il benchmark. "
+                            "Considera di consolidare i profitti o aumentare la diversificazione per proteggere i guadagni."
+                        )
+                    if not suggestions:
+                        suggestions.append(
+                            "ℹ️ Il portafoglio ha parametri nella norma. "
+                            "Nessun segnale critico rilevato — continua a monitorare periodicamente."
+                        )
+
+                    for sg in suggestions:
+                        st.markdown(
+                            f"<div style='background:#0D1F38; border-left:3px solid #4A9EFF; "
+                            f"border-radius:4px; padding:0.8rem 1rem; margin-bottom:0.6rem;'>{sg}</div>",
+                            unsafe_allow_html=True
+                        )
 
             except Exception as e:
                 st.error(f"Errore durante il backtest: {e}")
@@ -891,7 +1011,7 @@ elif choice == "Stock Screener":
 
     if st.session_state.screener_selected:
         target = st.session_state.screener_selected
-        col_back, col_title = st.columns([1, 6])
+        col_back, _ = st.columns([1, 6])
         with col_back:
             if st.button("← Torna allo Screener"):
                 st.session_state.screener_selected = None
@@ -930,6 +1050,13 @@ elif choice == "Stock Screener":
                 "Communication Services","Utilities","Real Estate","Basic Materials"
             ])
 
+        # Filtro prodotto/servizio — ricerca testuale libera
+        product_filter = st.text_input(
+            "Filtra per prodotto / servizio / business (lascia vuoto per ignorare)",
+            "",
+            placeholder="Es: cloud, semiconductor, oil, insurance, electric vehicle, pharma, streaming..."
+        )
+
         custom_in = st.text_input("Aggiungi ticker custom all'universo (separati da virgola)", "")
         if custom_in.strip():
             extras = [x.strip().upper() for x in custom_in.split(",") if x.strip()]
@@ -965,8 +1092,23 @@ elif choice == "Stock Screener":
                     price     = (info.get('currentPrice') or info.get('regularMarketPrice')
                                  or info.get('previousClose'))
 
+                    # Filtro settore
                     if sector_filter != "Tutti" and sector_v != sector_filter:
                         continue
+
+                    # Filtro prodotto/servizio — ricerca in business summary, industria, nome
+                    if product_filter.strip():
+                        keyword = product_filter.strip().lower()
+                        business_text = (
+                            (info.get('longBusinessSummary') or '') + ' ' +
+                            (info.get('industry') or '') + ' ' +
+                            (info.get('longName') or '') + ' ' +
+                            (info.get('sector') or '')
+                        ).lower()
+                        if keyword not in business_text:
+                            continue
+
+                    # Filtri numerici
                     if pe        is not None and pe              > pe_max:        continue
                     if pb        is not None and pb              > pb_max:        continue
                     if ps        is not None and ps              > ps_max:        continue
@@ -995,20 +1137,14 @@ elif choice == "Stock Screener":
 
             progress.empty()
             status.empty()
-
-            if results:
-                st.session_state.screener_results = results
-            else:
-                st.session_state.screener_results = []
+            st.session_state.screener_results = results if results else []
 
         if st.session_state.screener_results:
             results = st.session_state.screener_results
             st.success(f"✅  {len(results)} aziende trovate che rispettano i filtri")
             st.markdown("---")
             st.markdown("#### Risultati")
-
-            df_results = pd.DataFrame(results)
-            st.dataframe(df_results.set_index("Ticker"), use_container_width=True)
+            st.dataframe(pd.DataFrame(results).set_index("Ticker"), use_container_width=True)
 
             st.markdown("#### Analizza un'azienda in dettaglio")
             ticker_options = [f"{r['Ticker']} — {r['Nome']}" for r in results]
