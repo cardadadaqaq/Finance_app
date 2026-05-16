@@ -688,59 +688,345 @@ elif choice == "Analisi DCF":
 # 3. MULTI-COMPARE
 # =========================================================
 elif choice == "Multi-Compare":
-    page_title("📊  Multi-Asset Comparison", "Confronto del rendimento percentuale normalizzato tra più ticker")
+    page_title("📊  Multi-Asset Comparison", "Confronto rendimenti, inflazione e fondamentali aziendali")
 
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col1:
-        tk_in = st.text_input("Ticker (separati da virgola)", "AAPL, MSFT, TSLA, NVDA")
-    with col2:
-        horizon = st.selectbox("Orizzonte", ["Mesi", "Anni"])
-    with col3:
-        val = st.slider("Durata", min_value=1, max_value=24 if horizon == "Mesi" else 10, value=12)
+    # --- Modalità ---
+    mode = st.radio(
+        "Cosa vuoi visualizzare?",
+        ["📈 Rendimento % Asset", "📉 Inflazione", "🏢 Fondamentali Aziendali"],
+        horizontal=True
+    )
 
-    tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
-    start_str = (datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)).strftime("%Y-%m-%d")
+    st.markdown("---")
 
-    if tk_list:
-        with st.spinner("Download dati..."):
+    # -------------------------------------------------------
+    # MODALITÀ 1 — Rendimento % (identica a prima)
+    # -------------------------------------------------------
+    if mode == "📈 Rendimento % Asset":
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            tk_in = st.text_input("Ticker (separati da virgola)", "AAPL, MSFT, TSLA, NVDA")
+        with col2:
+            horizon = st.selectbox("Orizzonte", ["Mesi", "Anni"])
+        with col3:
+            val = st.slider("Durata", min_value=1, max_value=24 if horizon == "Mesi" else 10, value=12)
+
+        tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
+        start_str = (datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)).strftime("%Y-%m-%d")
+
+        if tk_list:
+            with st.spinner("Download dati..."):
+                try:
+                    frames = {}
+                    for tkr in tk_list:
+                        s = download_single(tkr, start_str=start_str)
+                        if not s.empty:
+                            frames[tkr] = s
+                        else:
+                            st.warning(f"⚠️ Nessun dato per {tkr}")
+                    if frames:
+                        data = pd.DataFrame(frames).dropna(how='all').ffill()
+                        rets = ((data / data.iloc[0]) - 1) * 100
+                        colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
+                                  '#1ABC9C', '#E67E22', '#3498DB', '#EC407A', '#AB47BC']
+                        fig = go.Figure()
+                        for idx, col in enumerate(rets.columns):
+                            fig.add_trace(go.Scatter(
+                                x=rets.index, y=rets[col], name=col,
+                                line=dict(width=2, color=colors[idx % len(colors)]),
+                                hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>"
+                            ))
+                        fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
+                        fig.update_layout(
+                            **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
+                            title="Rendimento % Normalizzato",
+                            yaxis_title="Rendimento (%)",
+                            height=460
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        st.markdown("#### Riepilogo Rendimenti")
+                        summary = pd.DataFrame({
+                            "Rendimento Totale (%)": rets.iloc[-1].round(2),
+                            "Max (%)": rets.max().round(2),
+                            "Min (%)": rets.min().round(2),
+                        })
+                        st.dataframe(summary, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Errore: {e}")
+
+    # -------------------------------------------------------
+    # MODALITÀ 2 — Inflazione
+    # -------------------------------------------------------
+    elif mode == "📉 Inflazione":
+        st.markdown("#### Inflazione — Proxy tramite ETF")
+        st.info(
+            "L'inflazione ufficiale (CPI) non è disponibile via yfinance. "
+            "Usiamo proxy di mercato standard: **TIP** (TIPS USA), **RINF** (aspettative inflazione USA), "
+            "**ITIP** (TIPS Internazionali), e **CPIAUCSL** tramite FRED se disponibile. "
+            "Puoi aggiungere ticker custom."
+        )
+
+        inflation_defaults = "TIP, RINF, ITIP, STIP"
+        col1, col2, col3 = st.columns([3, 1, 1])
+        with col1:
+            infl_tickers_in = st.text_input("Ticker inflazione/TIPS", inflation_defaults)
+        with col2:
+            infl_horizon = st.selectbox("Orizzonte ", ["Mesi", "Anni"], key="infl_h")
+        with col3:
+            infl_val = st.slider("Durata ", min_value=1,
+                                 max_value=24 if infl_horizon == "Mesi" else 20, value=5,
+                                 key="infl_v")
+
+        compare_asset = st.text_input(
+            "Aggiungi asset da confrontare con l'inflazione (es: SPY, GLD, BTC-USD)",
+            "SPY, GLD"
+        )
+
+        infl_list = [x.strip().upper() for x in infl_tickers_in.split(",") if x.strip()]
+        comp_list = [x.strip().upper() for x in compare_asset.split(",") if x.strip()]
+        all_infl = list(dict.fromkeys(infl_list + comp_list))
+
+        infl_start = (datetime.now() - timedelta(
+            days=infl_val * 30 if infl_horizon == "Mesi" else infl_val * 365
+        )).strftime("%Y-%m-%d")
+
+        with st.spinner("Download proxy inflazione..."):
             try:
                 frames = {}
-                for tkr in tk_list:
-                    s = download_single(tkr, start_str=start_str)
+                for tkr in all_infl:
+                    s = download_single(tkr, start_str=infl_start)
                     if not s.empty:
                         frames[tkr] = s
                     else:
                         st.warning(f"⚠️ Nessun dato per {tkr}")
+
                 if frames:
                     data = pd.DataFrame(frames).dropna(how='all').ffill()
                     rets = ((data / data.iloc[0]) - 1) * 100
-                    colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C', '#9B59B6',
-                              '#1ABC9C', '#E67E22', '#3498DB', '#EC407A', '#AB47BC']
+
+                    infl_colors = {
+                        "TIP":  "#F39C12", "RINF": "#E74C3C",
+                        "ITIP": "#E67E22", "STIP": "#F1C40F",
+                        "SPY":  "#4A9EFF", "GLD":  "#2ECC71",
+                        "BTC-USD": "#9B59B6",
+                    }
+                    default_colors = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C',
+                                      '#9B59B6', '#1ABC9C', '#E67E22', '#AB47BC']
+
                     fig = go.Figure()
                     for idx, col in enumerate(rets.columns):
+                        is_infl = col in infl_list
+                        color = infl_colors.get(col, default_colors[idx % len(default_colors)])
                         fig.add_trace(go.Scatter(
                             x=rets.index, y=rets[col], name=col,
-                            line=dict(width=2, color=colors[idx % len(colors)]),
+                            line=dict(
+                                width=2.5 if is_infl else 1.5,
+                                dash="solid" if is_infl else "dot",
+                                color=color
+                            ),
                             hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>"
                         ))
+
                     fig.add_hline(y=0, line_dash="dot", line_color="#2E4A6E", line_width=1)
                     fig.update_layout(
                         **{**PLOTLY_LAYOUT, "xaxis": interactive_xaxis()},
-                        title="Rendimento % Normalizzato",
-                        yaxis_title="Rendimento (%)",
-                        height=460
+                        title="Proxy Inflazione vs Asset (rendimento % normalizzato)",
+                        yaxis_title="Rendimento % (base 100)",
+                        height=480
                     )
                     st.plotly_chart(fig, use_container_width=True)
-                    st.markdown("#### Riepilogo Rendimenti")
-                    summary = pd.DataFrame({
-                        "Rendimento Totale (%)": rets.iloc[-1].round(2),
-                        "Max (%)": rets.max().round(2),
-                        "Min (%)": rets.min().round(2),
-                    })
-                    st.dataframe(summary, use_container_width=True)
-            except Exception as e:
-                st.error(f"Errore nel download dei dati: {e}")
 
+                    st.markdown("#### Legenda Proxy")
+                    st.markdown("""
+                    | Ticker | Cosa rappresenta |
+                    |--------|-----------------|
+                    | **TIP** | iShares TIPS Bond ETF — obbligazioni USA indicizzate all'inflazione |
+                    | **RINF** | ProShares Inflation Expectations ETF — aspettative di inflazione a 10 anni USA |
+                    | **ITIP** | iShares International Inflation-Linked Bond ETF |
+                    | **STIP** | iShares 0-5 Year TIPS Bond ETF — inflazione a breve termine |
+                    | **GLD** | Oro — tradizionale hedge contro l'inflazione |
+                    """)
+            except Exception as e:
+                st.error(f"Errore: {e}")
+
+    # -------------------------------------------------------
+    # MODALITÀ 3 — Fondamentali Aziendali
+    # -------------------------------------------------------
+    elif mode == "🏢 Fondamentali Aziendali":
+        st.markdown("#### Andamento Fondamentali nel Tempo")
+
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            fund_tickers_in = st.text_input("Ticker aziende (separati da virgola)", "AAPL, MSFT, GOOGL")
+        with col2:
+            fund_metric = st.selectbox("Metrica da visualizzare", [
+                "P/E Ratio (trailingPE)",
+                "P/B Ratio",
+                "EPS (trailingEps)",
+                "Revenue (totalRevenue)",
+                "EBITDA",
+                "Debt/Equity",
+                "Operating Margin %",
+                "ROE %",
+                "Free Cash Flow",
+                "Market Cap (B$)",
+            ])
+
+        fund_list = [x.strip().upper() for x in fund_tickers_in.split(",") if x.strip()]
+
+        METRIC_MAP = {
+            "P/E Ratio (trailingPE)":   ("trailingPE",           1,      "P/E"),
+            "P/B Ratio":                ("priceToBook",           1,      "P/B"),
+            "EPS (trailingEps)":        ("trailingEps",           1,      "EPS ($)"),
+            "Revenue (totalRevenue)":   ("totalRevenue",          1e9,    "Revenue (B$)"),
+            "EBITDA":                   ("ebitda",                1e9,    "EBITDA (B$)"),
+            "Debt/Equity":              ("debtToEquity",          100,    "D/E (x)"),
+            "Operating Margin %":       ("operatingMargins",      0.01,   "Op. Margin %"),
+            "ROE %":                    ("returnOnEquity",        0.01,   "ROE %"),
+            "Free Cash Flow":           ("freeCashflow",          1e9,    "FCF (B$)"),
+            "Market Cap (B$)":          ("marketCap",             1e9,    "Market Cap (B$)"),
+        }
+
+        yf_key, divisor, y_label = METRIC_MAP[fund_metric]
+
+        st.info(
+            f"I fondamentali tramite yfinance sono valori **puntuali** (ultimo report), "
+            f"non storici. Il grafico mostra il confronto tra aziende per la metrica **{y_label}**."
+        )
+
+        if fund_list:
+            with st.spinner("Caricamento fondamentali..."):
+                # Dati puntuali — bar chart comparativo
+                bar_data = {}
+                for tkr in fund_list:
+                    info = get_ticker_info(tkr)
+                    val_raw = info.get(yf_key)
+                    if val_raw is not None:
+                        try:
+                            bar_data[tkr] = float(val_raw) / divisor
+                        except Exception:
+                            pass
+
+                if bar_data:
+                    colors_bar = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C',
+                                  '#9B59B6', '#1ABC9C', '#E67E22', '#AB47BC']
+                    fig_bar = go.Figure()
+                    fig_bar.add_trace(go.Bar(
+                        x=list(bar_data.keys()),
+                        y=list(bar_data.values()),
+                        marker_color=colors_bar[:len(bar_data)],
+                        text=[f"{v:.2f}" for v in bar_data.values()],
+                        textposition='outside',
+                        textfont=dict(color='#FFFFFF'),
+                        hovertemplate="%{x}<br>" + y_label + ": %{y:.2f}<extra></extra>"
+                    ))
+                    fig_bar.update_layout(
+                        **PLOTLY_LAYOUT,
+                        title=f"Confronto {y_label} — Dati più recenti disponibili",
+                        yaxis_title=y_label,
+                        height=420,
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_bar, use_container_width=True)
+
+                # Dati storici trimestrali — earnings e revenue
+                st.markdown("---")
+                st.markdown("#### 📅 Storico Trimestrale — Earnings & Revenue")
+                st.caption("Dati trimestrali reali da yfinance (ultimi 4-8 trimestri disponibili)")
+
+                hist_metric = st.selectbox("Metrica storica", [
+                    "Earnings per Share (EPS)",
+                    "Revenue Trimestrale",
+                    "Gross Profit",
+                    "Net Income",
+                ], key="hist_metric_sel")
+
+                HIST_MAP = {
+                    "Earnings per Share (EPS)":  ("quarterly_earnings",    "EPS ($)"),
+                    "Revenue Trimestrale":        ("quarterly_financials",  "Revenue (B$)"),
+                    "Gross Profit":              ("quarterly_financials",  "Gross Profit (B$)"),
+                    "Net Income":                ("quarterly_financials",  "Net Income (B$)"),
+                }
+
+                hist_key, hist_label = HIST_MAP[hist_metric]
+
+                fig_hist = go.Figure()
+                colors_hist = ['#4A9EFF', '#2ECC71', '#F39C12', '#E74C3C',
+                               '#9B59B6', '#1ABC9C', '#E67E22', '#AB47BC']
+                has_data = False
+
+                for idx, tkr in enumerate(fund_list):
+                    try:
+                        t = yf.Ticker(tkr)
+                        if hist_metric == "Earnings per Share (EPS)":
+                            df_q = t.quarterly_earnings
+                            if df_q is not None and not df_q.empty and 'EPS' in df_q.columns:
+                                fig_hist.add_trace(go.Bar(
+                                    x=df_q.index.astype(str),
+                                    y=df_q['EPS'],
+                                    name=tkr,
+                                    marker_color=colors_hist[idx % len(colors_hist)],
+                                    hovertemplate="%{x}<br>EPS: $%{y:.2f}<extra>" + tkr + "</extra>"
+                                ))
+                                has_data = True
+                        else:
+                            df_f = t.quarterly_financials
+                            if df_f is not None and not df_f.empty:
+                                row_map = {
+                                    "Revenue Trimestrale": "Total Revenue",
+                                    "Gross Profit":        "Gross Profit",
+                                    "Net Income":          "Net Income",
+                                }
+                                row_key = row_map[hist_metric]
+                                if row_key in df_f.index:
+                                    series = df_f.loc[row_key].sort_index()
+                                    fig_hist.add_trace(go.Bar(
+                                        x=series.index.astype(str),
+                                        y=series.values / 1e9,
+                                        name=tkr,
+                                        marker_color=colors_hist[idx % len(colors_hist)],
+                                        hovertemplate="%{x}<br>" + hist_label + ": $%{y:.2f}B<extra>" + tkr + "</extra>"
+                                    ))
+                                    has_data = True
+                    except Exception:
+                        continue
+
+                if has_data:
+                    fig_hist.update_layout(
+                        **PLOTLY_LAYOUT,
+                        title=f"Storico Trimestrale — {hist_label}",
+                        yaxis_title=hist_label,
+                        barmode='group',
+                        height=420
+                    )
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                else:
+                    st.warning("Dati trimestrali non disponibili per i ticker selezionati.")
+
+                # Tabella riepilogativa fondamentali
+                st.markdown("---")
+                st.markdown("#### Tabella Fondamentali Completa")
+                rows = []
+                for tkr in fund_list:
+                    info = get_ticker_info(tkr)
+                    if not info:
+                        continue
+                    rows.append({
+                        "Ticker":      tkr,
+                        "P/E":         f"{info.get('trailingPE'):.1f}"            if info.get('trailingPE')       else "N/A",
+                        "P/E Fwd":     f"{info.get('forwardPE'):.1f}"             if info.get('forwardPE')        else "N/A",
+                        "P/B":         f"{info.get('priceToBook'):.1f}"           if info.get('priceToBook')      else "N/A",
+                        "EPS Ttm":     f"{info.get('trailingEps'):.2f}"           if info.get('trailingEps')      else "N/A",
+                        "EPS Fwd":     f"{info.get('forwardEps'):.2f}"            if info.get('forwardEps')       else "N/A",
+                        "Rev (B$)":    f"{info.get('totalRevenue',0)/1e9:.1f}"    if info.get('totalRevenue')     else "N/A",
+                        "EBITDA (B$)": f"{info.get('ebitda',0)/1e9:.1f}"          if info.get('ebitda')           else "N/A",
+                        "FCF (B$)":    f"{info.get('freeCashflow',0)/1e9:.1f}"    if info.get('freeCashflow')     else "N/A",
+                        "D/E (x)":     f"{info.get('debtToEquity',0)/100:.2f}"    if info.get('debtToEquity')     else "N/A",
+                        "Op.Mgn %":    f"{info.get('operatingMargins',0)*100:.1f}" if info.get('operatingMargins') else "N/A",
+                        "ROE %":       f"{info.get('returnOnEquity',0)*100:.1f}"  if info.get('returnOnEquity')   else "N/A",
+                    })
+                if rows:
+                    st.dataframe(pd.DataFrame(rows).set_index("Ticker"), use_container_width=True)
 
 # =========================================================
 # 4. PORTFOLIO BACKTEST
