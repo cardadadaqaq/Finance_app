@@ -1,4 +1,4 @@
-ash
+sh
 
 cat > /home/claude/navy_terminal_pro.py << 'ENDOFFILE'
 import streamlit as st
@@ -1584,5 +1584,9 @@ elif choice == "Market News":
            border:1px solid #0E2440;border-radius:3px;padding:0.6rem 0.9rem;text-decoration:none;
            color:#3B8EF0;font-family:IBM Plex Mono,monospace;font-size:0.78rem;
            margin-bottom:0.5rem;letter-spacing:0.04em'>📎 {name}</a>""", unsafe_allow_html=True)
+ENDOFFILE
+Output
 
+exit code 0
+Done
 
