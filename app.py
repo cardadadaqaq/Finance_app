@@ -1,3 +1,4 @@
+at > /home/claude/navy_terminal_pro_v4.py << 'PYEOF'
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,9 +11,6 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="Navy Terminal Pro", layout="wide", initial_sidebar_state="expanded")
 
-# ─────────────────────────────────────────────
-#  CSS GLOBAL
-# ─────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
@@ -68,7 +66,6 @@ hr{border-color:#0E2440!important;border-style:solid!important;opacity:0.5}
 # ─────────────────────────────────────────────
 #  SESSION STATE
 # ─────────────────────────────────────────────
-# FIX #24: use sentinel object instead of None to distinguish "never run" from "ran, no results"
 _SCREENER_NOT_RUN = "NOT_RUN"
 DEFAULTS = dict(
     page="Global Overview",
@@ -96,7 +93,7 @@ with st.sidebar:
     MENU = [
         ("🌍", "Global Overview"), ("⭐", "Watchlist"), ("🧮", "Analisi DCF"),
         ("📊", "Multi-Compare"), ("🧪", "Portfolio Backtest"),
-        ("🔍", "Stock Screener"), ("⌨️", "Bloomberg Insights"), ("📰", "Market News"),
+        ("🔍", "Stock Screener"), ("⌨️", "Bloomberg Insights"),
     ]
     for icon, label in MENU:
         active = st.session_state.page == label
@@ -113,7 +110,7 @@ with st.sidebar:
     <div style='margin-top:2rem;padding:0 0.5rem'>
       <div style='height:1px;background:linear-gradient(90deg,transparent,#0E2440,transparent);margin-bottom:0.7rem'></div>
       <div style='font-family:IBM Plex Mono,monospace;font-size:0.52rem;color:#1E3A5F;text-align:center;letter-spacing:0.14em;line-height:1.9'>
-        LIVE DATA · YFINANCE<br>v3.1 · NAVY TERMINAL PRO
+        LIVE DATA · YFINANCE<br>v4.0 · NAVY TERMINAL PRO
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -135,7 +132,6 @@ COLORS = [
     "#E67E22", "#3498DB", "#EC407A", "#AB47BC", "#00BCD4", "#8BC34A",
 ]
 
-# FIX #16: deep-merge helper so per-chart axis overrides don't get clobbered by PLOTLY_BASE
 def _deep_merge(base: dict, override: dict) -> dict:
     result = dict(base)
     for k, v in override.items():
@@ -145,7 +141,6 @@ def _deep_merge(base: dict, override: dict) -> dict:
             result[k] = v
     return result
 
-# Base layout — intentionally NO top-level xaxis/yaxis so per-chart overrides are clean
 PLOTLY_BASE = dict(
     template="plotly_dark",
     paper_bgcolor="rgba(3,10,20,0)",
@@ -158,7 +153,6 @@ PLOTLY_BASE = dict(
 )
 
 def iaxis(bar_chart: bool = False) -> dict:
-    """Interactive x-axis with range selector. Pass bar_chart=True to suppress range slider."""
     base = dict(
         gridcolor="#0A1A2E", showgrid=True, zeroline=False,
         rangeselector=dict(
@@ -170,21 +164,20 @@ def iaxis(bar_chart: bool = False) -> dict:
                 dict(count=1,  label="1A", step="year",  stepmode="backward"),
                 dict(count=3,  label="3A", step="year",  stepmode="backward"),
                 dict(count=5,  label="5A", step="year",  stepmode="backward"),
+                dict(count=10, label="10A", step="year", stepmode="backward"),
+                dict(count=20, label="20A", step="year", stepmode="backward"),
                 dict(step="all", label="MAX"),
             ],
         ),
     )
     if not bar_chart:
-        # FIX #9: omit rangeslider on bar charts to avoid visual clutter
         base["rangeslider"] = dict(visible=True, bgcolor="#030A14", thickness=0.04)
     return base
 
 def plain_axis() -> dict:
-    """Simple styled axis without interactive controls — for bar/heatmap charts."""
     return dict(gridcolor="#0A1A2E", showgrid=True, zeroline=False)
 
 def pl(overrides: dict | None = None) -> dict:
-    """Return a layout dict merging PLOTLY_BASE with per-chart overrides."""
     if overrides:
         return _deep_merge(PLOTLY_BASE, overrides)
     return dict(PLOTLY_BASE)
@@ -211,7 +204,6 @@ def fetch_hist(ticker: str, period: str = "2d") -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
-# FIX #14: unified close-price fetcher using Ticker.history() throughout
 @st.cache_data(ttl=240, show_spinner=False)
 def fetch_close(ticker: str, start: str | None = None, period: str | None = None) -> pd.Series:
     """Always returns a named pd.Series (float). Empty on failure."""
@@ -226,7 +218,6 @@ def fetch_close(ticker: str, start: str | None = None, period: str | None = None
         if raw.empty:
             return pd.Series(dtype=float, name=ticker)
         s = raw["Close"].squeeze()
-        # Remove timezone info for consistent indexing
         if hasattr(s.index, "tz") and s.index.tz is not None:
             s.index = s.index.tz_localize(None)
         return s.rename(ticker)
@@ -235,7 +226,6 @@ def fetch_close(ticker: str, start: str | None = None, period: str | None = None
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_price_change(ticker: str) -> tuple[float | None, float | None]:
-    """Returns (price, pct_change_today). Both None on failure."""
     try:
         d = yf.Ticker(ticker).history(period="2d")
         if len(d) >= 2:
@@ -255,11 +245,6 @@ _QUARTERLY_ATTRS = ["quarterly_income_stmt", "quarterly_financials", "income_stm
 _CASHFLOW_ATTRS  = ["quarterly_cashflow", "cashflow", "quarterly_cash_flow", "cash_flow"]
 
 def _first_series(ticker_obj, attrs: list[str], row_candidates: list[str]) -> tuple[pd.Series | None, str]:
-    """
-    Try multiple DataFrame attributes and row names.
-    Returns (series, attr_name) where series index is DatetimeIndex, or (None, "").
-    FIX #4: attr_name is always defined, never leaks from outer scope.
-    """
     for attr in attrs:
         try:
             df = getattr(ticker_obj, attr, None)
@@ -283,9 +268,7 @@ def get_pe_history(ticker: str, years: int = 8) -> pd.Series:
         if ph.empty:
             return pd.Series(dtype=float, name=ticker)
         ph.index = ph.index.tz_localize(None)
-
         eps_series, attr = _first_series(t, _QUARTERLY_ATTRS, ["Basic EPS", "Diluted EPS", "EPS"])
-
         if eps_series is not None:
             ttm = eps_series.rolling(4, min_periods=2).sum() if "quarterly" in attr else eps_series
             ttm = ttm[ttm != 0]
@@ -295,8 +278,6 @@ def get_pe_history(ticker: str, years: int = 8) -> pd.Series:
                 pe = pe[(pe > 0) & (pe < 500)].dropna()
                 if len(pe) > 30:
                     return pe.rename(ticker)
-
-        # Fallback: snapshot trailing EPS
         eps_snap = t.info.get("trailingEps")
         if eps_snap and eps_snap > 0:
             return (ph / eps_snap).rename(ticker)
@@ -315,7 +296,6 @@ def get_ps_history(ticker: str, years: int = 8) -> pd.Series:
         shares = t.info.get("sharesOutstanding") or t.info.get("impliedSharesOutstanding")
         if not shares:
             return pd.Series(dtype=float, name=ticker)
-
         rev_series, attr = _first_series(t, _QUARTERLY_ATTRS, ["Total Revenue", "Revenue", "Net Revenue"])
         if rev_series is not None:
             ttm = rev_series.rolling(4, min_periods=2).sum() if "quarterly" in attr else rev_series
@@ -325,7 +305,6 @@ def get_ps_history(ticker: str, years: int = 8) -> pd.Series:
             ps = ps[(ps > 0) & (ps < 200)].dropna()
             if len(ps) > 30:
                 return ps.rename(ticker)
-
         rev_snap = t.info.get("totalRevenue")
         if rev_snap and rev_snap > 0:
             return ((ph * shares) / rev_snap).rename(ticker)
@@ -348,7 +327,6 @@ def get_mktcap_history(ticker: str, years: int = 8) -> pd.Series:
     except Exception:
         return pd.Series(dtype=float, name=ticker)
 
-# FIX #22: expanded EBITDA row candidates
 _METRIC_ROW_MAP = {
     "EPS":        ["Basic EPS", "Diluted EPS", "EPS"],
     "Revenue":    ["Total Revenue", "Revenue", "Net Revenue"],
@@ -364,21 +342,17 @@ def get_quarterly_series(ticker: str, metric: str) -> pd.Series:
         t = yf.Ticker(ticker)
         candidates = _METRIC_ROW_MAP.get(metric, [metric])
         attrs      = _CASHFLOW_ATTRS if metric == "FCF" else _QUARTERLY_ATTRS
-
         s, _ = _first_series(t, attrs, candidates)
         if s is None or s.empty:
             return pd.Series(dtype=float, name=ticker)
-
         divisor = 1 if metric == "EPS" else 1e9
         return (s / divisor).rename(ticker)
     except Exception:
         return pd.Series(dtype=float, name=ticker)
 
 # ─────────────────────────────────────────────
-#  UNIVERSE
+#  UNIVERSE — ~1000 tickers
 # ─────────────────────────────────────────────
-# FIX #1: removed "TRADE" (dupe of TTD), fixed "L3TK" → "LHX", removed duplicate "TIPS"
-# FIX #15: removed dubious tickers BAMXF, SAMSUNG.KS, LG.KS
 CURATED_TICKERS = [
     # ── US MEGA CAP ──────────────────────────────────────────────
     "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","JPM","V",
@@ -391,39 +365,66 @@ CURATED_TICKERS = [
     "ARM","SMCI","MRVL","KLAC","MPWR","ENPH","FSLR","SEDG","RUN",
     "FTNT","CRWD","ZS","OKTA","DDOG","MDB","GTLB","ESTC","HUBS",
     "TTD","ROKU","SNAP","PINS","SPOT","DUOL",
+    # ── US LARGE CAP TECH (additional) ──────────────────────────
+    "TWLO","DOCN","CFLT","S","SMAR","APPF","PCTY","COUP","GWRE","AZPN",
+    "VEEV","HIMS","ACAD","SDGR","RXRX","ASAN","BASE","BOX","DBX","DOCU",
+    "FIVN","FSLY","JAMF","MNDY","NET","NTNX","PSTG","PUBM","RAMP","SPRK",
+    "SUMO","TASK","TOST","U","WCLD","WIX","ZI","ZM","ZUO",
     # ── US FINANCIALS ────────────────────────────────────────────
     "BAC","WFC","GS","MS","BLK","SCHW","C","USB","PNC","TFC",
     "AXP","COF","DFS","SYF","ALLY","SOFI","AFRM","UPST",
     "BX","KKR","APO","CG","ARES","TPG",
     "CB","PGR","TRV","AIG","MET","PRU","AFL","ALL","CINF","HIG",
+    "FITB","HBAN","RF","CFG","KEY","ZION","CMA","SNV","WAL","PACW",
+    "NDAQ","ICE","CME","CBOE","MKTX","LPLA","RJF","SF","STIFEL",
+    "V","MA","PYPL","SQ","FIS","FISV","GPN","WU","MQ","FOUR",
     # ── US HEALTHCARE ────────────────────────────────────────────
     "MRNA","PFE","BMY","GILD","REGN","VRTX","BIIB","ILMN","IQV",
     "MCK","ABC","CAH","CVS","CI","HUM","ELV","MOH","CNC",
     "BSX","MDT","SYK","EW","ZBH","BAX","BDX","IDXX","HOLX",
     "LLY","NVO","AZN","GSK","NVS",
+    "ALGN","DXCM","ISRG","ABT","A","RMD","PODD","INSP","NVCR","ENVA",
+    "INVA","JAZZ","NBIX","RARE","SRPT","BLUE","FATE","SAGE","IONS","ALNY",
+    "BMRN","EXAS","GKOS","HALO","IMAB","ITRI","LGND","MANH","MASI","MMSI",
+    "NARI","NTRA","NVAX","OFIX","OMCL","OPCH","QDEL","RGEN","RLAY","RYTM",
     # ── US CONSUMER ──────────────────────────────────────────────
     "COST","WMT","TGT","DG","DLTR","KR","SFM",
     "NKE","LULU","UAA","HBI","PVH","RL","TPR","CPRI","VFC",
-    "MCD","SBUX","YUM","CMG","DPZ","QSR","WEN",
+    "MCD","SBUX","YUM","CMG","DPZ","QSR","WEN","JACK","SHAK","TXRH",
     "F","GM","RIVN","LCID","TM","VWAGY",
     "AMGN","DXCM","ISRG","ABT","A",
+    "BBY","ETSY","EBAY","CHWY","W","RH","PTON","NWSA","NYT","PARA",
+    "CL","CHD","CLX","CLOROX","EL","KVUE","MNST","CELH","KHC","GIS",
+    "CPB","CAG","MKC","SJM","HRL","TSN","SAFM","CALM","LANC",
+    "LOW","SHW","MAS","FBHS","TREX","AZEK","BECN","BLDR","IBP","SITE",
     # ── US INDUSTRIALS ───────────────────────────────────────────
     "BA","CAT","DE","GE","HON","RTX","LMT","NOC","GD","LHX",
     "MMM","EMR","ETN","PH","ROK","AME","FTV","XYL","NDSN",
     "UPS","FDX","CHRW","EXPD","XPO","SAIA","ODFL","JBHT",
+    "GNRC","ALLE","CARR","OTIS","IR","JCI","TT","VRT","AAON","ACHR",
+    "AXON","CACI","LDOS","BAH","SAIC","DRS","HII","MOOG","TDG","HWM",
+    "CW","ESE","HEICO","KTOS","MRCY","OSK","PLTR","RBC","SPR","TXT",
+    "WM","RSG","CWST","SRCL","CLH","ECOL","US","HCCI","IBG","KCLI",
     # ── US ENERGY ────────────────────────────────────────────────
     "EOG","COP","OXY","DVN","MRO","APA","FANG",
     "SLB","HAL","BKR","NOV","HP",
     "CEG","TLN","CCJ","NNE","OKLO","SMR","VST","NRG",
+    "CVE","IMO","MPC","PSX","VLO","DKL","CAPL","HFC","DINO","PARR",
+    "KMI","WMB","ET","MPLX","PAA","ENB","TRP","OKE","LNG","CQP",
     # ── US REITS & UTILITIES ─────────────────────────────────────
     "AMT","PLD","EQIX","CCI","PSA","SPG","O","WELL","DLR",
     "AVB","EQR","INVH","AMH","NNN","WPC","STAG",
     "NEE","DUK","SO","AEP","EXC","XEL","ED","WEC","DTE","PPL",
+    "AWK","CMS","LNT","OGE","EVRG","IDACORP","CLECO","NSTAR","UIL","ALE",
+    "VTR","PEAK","HST","RHP","PKI","SUI","ELS","UDR","CPT","ESS",
+    "NLY","AGNC","TWO","MITT","ORC","ARR","NYMT","BXMT","SACH","LADR",
     # ── US MATERIALS ─────────────────────────────────────────────
     "NEM","GOLD","AEM","KGC","FNV","WPM","PAAS",
     "FCX","SCCO","AA","CENX","MP",
     "DD","DOW","LYB","CE","OLN","WLK","EMN",
     "NUE","STLD","CLF","X","CMC",
+    "APD","ALB","ECL","IFF","PPG","RPM","VHI","HUN","AXTA","OLIN",
+    "BALL","PKG","IP","SEE","SLGN","SON","ATI","HAYN","KALU","RYI",
     # ── POPULAR / GROWTH ─────────────────────────────────────────
     "DKNG","PENN","MGM","WYNN","LVS","CZR",
     "GME","AMC","BBWI",
@@ -431,6 +432,8 @@ CURATED_TICKERS = [
     "SQ","PYPL","WU","MQ","FOUR","GPN","FIS","FISV",
     "PATH","AI","BBAI","SOUN","IREN","CORZ","RIOT","MARA","CLSK",
     "IONQ","RGTI","QBTS",
+    "HOOD","LCID","NKLA","HYLN","GOEV","FSR","ARVL","WKHS","SOLO","AYRO",
+    "SPCE","RKT","OPEN","UWMC","GHVI","PSTH","COVA","AJAX","DUNE","FTPA",
     # ── ETFs ─────────────────────────────────────────────────────
     "SPY","QQQ","IWM","VOO","VTI","VEA","VWO","VXUS",
     "GLD","SLV","IAU","GDX","GDXJ","USO","UNG",
@@ -439,6 +442,11 @@ CURATED_TICKERS = [
     "ARKK","ARKG","ARKW","ARKF","ARKQ",
     "SOXL","SOXS","TQQQ","UPRO","SPXU","UVXY","VXX",
     "IBIT","ETHA","GBTC","FBTC",
+    "VIG","SCHD","DGRO","DVY","SDY","HDV","VYM","NOBL","QUAL","MTUM",
+    "VOOG","MGK","VUG","VTV","IVW","IVE","RSP","EQLW","SPMO","SPGP",
+    "HACK","CIBR","BUG","CLOU","WCLD","SKYY","IGV","FDN","FINX","ARKX",
+    "JETS","AWAY","HOTEL","BITE","BFIT","NERD","ESPO","HERO","GAMR","VICE",
+    "ICLN","ACES","QCLN","TAN","FAN","LIT","BATT","DRIV","IDRV","KARS",
     # ── EUROPA ───────────────────────────────────────────────────
     "ASML.AS","PHIA.AS","HEIA.AS","INGA.AS","UNA.AS","WKL.AS","ADYEN.AS",
     "SAP.DE","BMW.DE","SIE.DE","BAYN.DE","MBG.DE","ALV.DE","BAS.DE",
@@ -450,11 +458,24 @@ CURATED_TICKERS = [
     "BARC.L","LLOY.L","NWG.L","BT-A.L","VOD.L","REL.L","EXPN.L",
     "ITX.MC","SAN.MC","BBVA.MC","REP.MC","TEF.MC","IBE.MC",
     "NOVO-B.CO","ORSTED.CO","DSV.CO","MAERSK-B.CO",
+    "EQNR.OL","DNB.OL","MOWI.OL","SCATEC.OL","SUBC.OL",
+    "ERIC-B.ST","SAND.ST","ATCO-A.ST","EVO.ST","SWED-A.ST","SHB-A.ST",
+    "KNEBV.HE","UPM.HE","NESTE.HE","FORTUM.HE","NOKIA.HE",
+    "KPN.AS","RAND.AS","NN.AS","AGN.AS","BESI.AS","IMCD.AS",
+    "AIR.PA","CAP.PA","VIE.PA","DSY.PA","SGO.PA","SW.PA","URW.PA",
+    "IFX.DE","FRE.DE","HAG.DE","MTX.DE","PUM.DE","ZAL.DE","1COV.DE",
+    "LOGN.SW","TEMN.SW","SOON.SW","SIKA.SW","GIVN.SW","BARN.SW",
+    "CRH.L","DGE.L","RB.L","WTB.L","SMT.L","3IN.L","ABF.L","IMB.L",
+    "CABK.MC","ENG.MC","MRL.MC","ACS.MC","FER.MC","NTGY.MC","GRF.MC",
     # ── ITALIA ───────────────────────────────────────────────────
     "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI",
     "TIT.MI","MB.MI","BMED.MI","PRY.MI","REC.MI","PIRC.MI","BPER.MI",
     "G.MI","SPM.MI","TEN.MI","ENIA.MI","ERG.MI","IREN.MI","A2A.MI",
     "CNHI.MI","LDO.MI","MONC.MI","SFER.MI",
+    "AMZN.MI","AMP.MI","AZIMUT.MI","BANCA.MI","BAMI.MI","BPE.MI",
+    "BUZZI.MI","CPR.MI","DIA.MI","EXO.MI","FINECOBANK.MI","GIMA.MI",
+    "IVG.MI","JUVENTUS.MI","LAZIO.MI","MAIRE.MI","NEXI.MI","OVS.MI",
+    "POSTE.MI","PRYSMIAN.MI","RAVE.MI","RECORDATI.MI","REPLY.MI","SECO.MI",
     # ── ASIA / LATAM / GLOBAL ────────────────────────────────────
     "TSM","BABA","JD","PDD","BIDU","NIO","LI","XPEV",
     "SONY","TM","HMC","MUFG","SMFG","MFG",
@@ -463,9 +484,31 @@ CURATED_TICKERS = [
     "MELI","NU","GLOB","PAGS","STNE",
     "SHOP","RY","TD","BNS","BMO","CM","ENB","CNQ","SU",
     "BHP","RIO","GLNCY","SCCO","TECK",
+    "SE","GRAB","GOTO","BEKE","TIGR","IQ","QFIN","LU","NOAH","CNF",
+    "FUTU","TIGR","HTHT","TAL","EDU","NEW","LAIX","RLX","YUMC","SBSW",
+    "GOLD","BTG","SSYS","DDD","MTLS","XONE","NNDM","MARK","VJET","DM",
+    "SAM","HEINY","BUD","ABEV","DEO","STZ","BF-B","MGPI","WVVI","EAST",
+    "NMR","MUFG","KB","SHG","055550.KS","086790.KS",
     # ── CRYPTO ───────────────────────────────────────────────────
     "BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","ADA-USD",
     "DOGE-USD","AVAX-USD","DOT-USD","LINK-USD","LTC-USD",
+    "MATIC-USD","UNI-USD","ATOM-USD","FIL-USD","NEAR-USD",
+    "APT-USD","OP-USD","ARB-USD","SUI-USD","SEI-USD",
+    # ── COMMODITIES (ETF proxies) ────────────────────────────────
+    "DBC","PDBC","GSG","COMB","RJI","DJP",
+    "CORN","WEAT","SOYB","CANE","JO","NIB","BAL",
+    "PALL","PPLT","SLV","GLD","IAU","SGOL",
+    "DBB","CPER","JJC","JJT","JJN","LD",
+    "UNG","BOIL","KOLD","GAZ","FCG",
+    "USO","UCO","SCO","OIL","DBO","BNO",
+    # ── BONDS (ETF proxies) ──────────────────────────────────────
+    "TLT","IEF","SHY","GOVT","VGLT","VGIT","VGSH",
+    "AGG","BND","BNDX","VBMFX","FBND",
+    "HYG","JNK","FALN","ANGL","HYLS","USHY",
+    "LQD","VCIT","VCLT","VCSH","IGIB","IGSB",
+    "TIP","VTIP","STIP","PBTP","SCHP",
+    "EMB","VWOB","PCY","LEMB","EBND","EMHY",
+    "MBB","MUB","HYD","VTEB","PZA","CMF",
 ]
 CURATED_TICKERS = list(dict.fromkeys(CURATED_TICKERS))  # deduplicate, preserve order
 
@@ -483,7 +526,6 @@ def get_universe() -> list[str]:
 # ─────────────────────────────────────────────
 #  SUPPLY CHAIN MAP
 # ─────────────────────────────────────────────
-# FIX #5: clearly separate ticker lists from descriptive labels
 SC_MAP = {
     "Technology": {
         "sup":  ["TSM", "ASML.AS", "AMAT", "LRCX", "KLAC"],
@@ -577,7 +619,6 @@ def show_bloomberg(target: str, peers_default: str = "SPY, QQQ, IWM") -> None:
     chg_pct = (price - prev) / prev * 100 if price and prev and prev != 0 else None
     sector  = inf.get("sector", "N/A")
 
-    # ── Header ──
     chg_col = "#2ECC71" if (chg_pct or 0) >= 0 else "#E74C3C"
     chg_str = f"<span style='color:{chg_col}'>{chg_pct:+.2f}% oggi</span>" if chg_pct is not None else ""
     st.markdown(f"""
@@ -601,7 +642,6 @@ def show_bloomberg(target: str, peers_default: str = "SPY, QQQ, IWM") -> None:
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # ── KPIs ──
     kpi_cols = st.columns(7)
     kpis = [
         ("P/E Fwd",    f"{inf['forwardPE']:.1f}"        if inf.get("forwardPE")            else "N/A"),
@@ -616,8 +656,6 @@ def show_bloomberg(target: str, peers_default: str = "SPY, QQQ, IWM") -> None:
         kpi_cols[i].metric(label, val)
 
     st.markdown("---")
-
-    # ── Description + News ──
     c_desc, c_news = st.columns([2, 1])
     with c_desc:
         sec("BUSINESS SUMMARY")
@@ -655,15 +693,11 @@ def show_bloomberg(target: str, peers_default: str = "SPY, QQQ, IWM") -> None:
 
     st.markdown("---")
     sec("PEER ANALYSIS")
-
-    # FIX #6: peers state is keyed per ticker; only initialise if not already set
     peers_key = f"peers_{target}"
     if peers_key not in st.session_state:
         st.session_state[peers_key] = peers_default
-
     peers_in = st.text_input("Competitors (virgola)", value=st.session_state[peers_key], key=f"pi_{target}")
     st.session_state[peers_key] = peers_in
-
     p_list = [target] + [x.strip().upper() for x in peers_in.split(",") if x.strip()]
     rows = []
     for p in p_list:
@@ -693,7 +727,6 @@ def show_bloomberg(target: str, peers_default: str = "SPY, QQQ, IWM") -> None:
 
     st.markdown("---")
     sec("PERFORMANCE RELATIVA 12M")
-
     frames = {tkr: s for tkr in p_list for s in [fetch_close(tkr, period="1y")] if not s.empty}
     if frames:
         peer_data = pd.DataFrame(frames).dropna(how="all").ffill()
@@ -757,7 +790,6 @@ if choice == "Global Overview":
     idx_cols = st.columns(4)
     for i, (name, tkr) in enumerate(INDICES.items()):
         p, c = fetch_price_change(tkr)
-        # FIX #3: explicit guard on both values
         price_str = f"{p:,.2f}" if p is not None else "N/A"
         delta_str = f"{c:+.2f}%" if c is not None else "—"
         idx_cols[i % 4].metric(name, price_str, delta_str)
@@ -833,7 +865,6 @@ elif choice == "Watchlist":
     if not wl:
         st.info("Watchlist vuota. Aggiungi dei ticker sopra.")
     else:
-        # FIX #17: avoid multiselect-triggered rerun loop by using a form
         with st.form("remove_form"):
             remove_sel = st.multiselect("Rimuovi dalla watchlist", wl)
             if st.form_submit_button("Rimuovi selezionati") and remove_sel:
@@ -951,7 +982,6 @@ elif choice == "Analisi DCF":
     wacc_range = [w - 0.02, w - 0.01, w, w + 0.01, w + 0.02]
     grow_range = [g - 0.02, g - 0.01, g, g + 0.01, g + 0.02]
 
-    # FIX #18: cleaner column/row labels
     tbl = {}
     for gr in grow_range:
         row_label = f"G {gr*100:.1f}%"
@@ -970,6 +1000,7 @@ elif choice == "Analisi DCF":
 
 # ═══════════════════════════════════════════════════════════
 #  PAGE 4 — MULTI-COMPARE
+#  Usa "max" come periodo default per la massima profondità storica
 # ═══════════════════════════════════════════════════════════
 elif choice == "Multi-Compare":
     page_title("📊  MULTI-ASSET COMPARISON", "Rendimenti · Fondamentali · Correlazioni · Inflazione")
@@ -979,15 +1010,25 @@ elif choice == "Multi-Compare":
 
     # ── MODE 1: Returns ──────────────────────────────────────
     if mode == "📈 Rendimento %":
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1: tk_in   = st.text_input("Ticker (virgola)", "AAPL, MSFT, TSLA, NVDA, SPY")
-        with c2: horizon = st.selectbox("Orizzonte", ["Mesi", "Anni"])
-        with c3: val     = st.slider("Durata", 1, 24 if horizon == "Mesi" else 20, 12)
-        tk_list   = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
-        start_str = (datetime.now() - timedelta(days=val * 30 if horizon == "Mesi" else val * 365)).strftime("%Y-%m-%d")
+        c1, c2 = st.columns([4, 2])
+        with c1:
+            tk_in = st.text_input("Ticker (virgola)", "AAPL, MSFT, TSLA, NVDA, SPY")
+        with c2:
+            # "MAX disponibile" usa period="max" di yfinance → massima storia disponibile
+            horizon_opts = {
+                "1 Anno":   "1y",
+                "3 Anni":   "3y",
+                "5 Anni":   "5y",
+                "10 Anni":  "10y",
+                "20 Anni":  "20y",
+                "MAX disponibile": "max",
+            }
+            horizon_lbl = st.selectbox("Orizzonte temporale", list(horizon_opts.keys()), index=4)
+        period_str = horizon_opts[horizon_lbl]
+        tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
 
         if tk_list:
-            frames = {t: s for t in tk_list for s in [fetch_close(t, start=start_str)] if not s.empty}
+            frames = {t: s for t in tk_list for s in [fetch_close(t, period=period_str)] if not s.empty}
             if frames:
                 data  = pd.DataFrame(frames).dropna(how="all").ffill()
                 rets  = ((data / data.iloc[0]) - 1) * 100
@@ -1000,28 +1041,33 @@ elif choice == "Multi-Compare":
                         hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>",
                     ))
                 fig_r.add_hline(y=0, line_dash="dot", line_color="#163860")
+                first_date = data.index[0].strftime("%d %b %Y")
                 fig_r.update_layout(**pl({
                     "xaxis": iaxis(),
                     "yaxis": dict(title="Rendimento %", **plain_axis()),
-                    "height": 460, "title": "Rendimento Normalizzato",
+                    "height": 480,
+                    "title": f"Rendimento Normalizzato — dal {first_date} · {horizon_lbl}",
                 }))
                 st.plotly_chart(fig_r, use_container_width=True)
 
                 sec("STATISTICHE")
                 dr    = data.pct_change().dropna()
+                actual_years = max((data.index[-1] - data.index[0]).days / 365.25, 0.1)
                 stats = []
                 for col in rets.columns:
                     ann_v = dr[col].std() * np.sqrt(252) * 100
-                    ann_r = rets[col].iloc[-1]
+                    tot_r = rets[col].iloc[-1]
+                    ann_r = ((1 + tot_r / 100) ** (1 / actual_years) - 1) * 100
                     dd    = ((data[col] / data[col].cummax()) - 1).min() * 100
+                    sharpe_val = ann_r / ann_v if ann_v > 0 else float('nan')
                     stats.append({
-                        "Ticker":    col,
-                        "Rend. %":   f"{ann_r:+.2f}%",
+                        "Ticker":     col,
+                        "Rend. Tot.": f"{tot_r:+.1f}%",
+                        "CAGR":       f"{ann_r:+.2f}%",
                         "Vol. Annua": f"{ann_v:.1f}%",
-                        "Sharpe":    f"{ann_r / ann_v:.2f}" if ann_v else "N/A",
-                        "Max DD":    f"{dd:.1f}%",
-                        "Max %":     f"{rets[col].max():+.1f}%",
-                        "Min %":     f"{rets[col].min():+.1f}%",
+                        "Sharpe":     f"{sharpe_val:.2f}" if not np.isnan(sharpe_val) else "N/A",
+                        "Max DD":     f"{dd:.1f}%",
+                        "Anni dati":  f"{actual_years:.1f}",
                     })
                 st.dataframe(pd.DataFrame(stats).set_index("Ticker"), use_container_width=True)
 
@@ -1037,21 +1083,26 @@ elif choice == "Multi-Compare":
                     fig_c.update_layout(**pl({"height": 340, "title": "Matrice di Correlazione"}))
                     st.plotly_chart(fig_c, use_container_width=True)
             else:
-                st.warning("Nessun dato disponibile per i ticker inseriti.")  # FIX #20
+                st.warning("Nessun dato disponibile per i ticker inseriti.")
 
     # ── MODE 2: Inflation ────────────────────────────────────
     elif mode == "📉 Inflazione":
         st.info("Proxy inflazione via ETF TIPS: **TIP** · **RINF** · **ITIP** · **STIP**")
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1: infl_in = st.text_input("TIPS Ticker", "TIP, RINF, STIP")
-        with c2: ih      = st.selectbox("Orizzonte", ["Mesi", "Anni"], key="ih")
-        with c3: iv      = st.slider("Durata", 1, 20, 5, key="iv")
+        c1, c2 = st.columns([4, 2])
+        with c1:
+            infl_in = st.text_input("TIPS Ticker", "TIP, RINF, STIP")
+        with c2:
+            infl_horiz_opts = {
+                "3 Anni": "3y", "5 Anni": "5y", "10 Anni": "10y",
+                "20 Anni": "20y", "MAX": "max",
+            }
+            infl_horiz_lbl = st.selectbox("Orizzonte", list(infl_horiz_opts.keys()), index=3, key="ih2")
+        infl_period = infl_horiz_opts[infl_horiz_lbl]
         comp_in  = st.text_input("Confronta con", "SPY, GLD, BND")
         infl_lst = [x.strip().upper() for x in infl_in.split(",") if x.strip()]
         all_t    = list(dict.fromkeys(infl_lst + [x.strip().upper() for x in comp_in.split(",") if x.strip()]))
-        start_i  = (datetime.now() - timedelta(days=iv * 30 if ih == "Mesi" else iv * 365)).strftime("%Y-%m-%d")
 
-        frames_i = {t: s for t in all_t for s in [fetch_close(t, start=start_i)] if not s.empty}
+        frames_i = {t: s for t in all_t for s in [fetch_close(t, period=infl_period)] if not s.empty}
         if frames_i:
             d = pd.DataFrame(frames_i).dropna(how="all").ffill()
             r = ((d / d.iloc[0]) - 1) * 100
@@ -1069,14 +1120,16 @@ elif choice == "Multi-Compare":
                     hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>" + col + "</extra>",
                 ))
             fig_i.add_hline(y=0, line_dash="dot", line_color="#163860")
+            first_date_i = d.index[0].strftime("%d %b %Y")
             fig_i.update_layout(**pl({
                 "xaxis": iaxis(),
                 "yaxis": dict(title="Rendimento % base 100", **plain_axis()),
-                "height": 460, "title": "Proxy Inflazione vs Asset",
+                "height": 480,
+                "title": f"Proxy Inflazione vs Asset — dal {first_date_i}",
             }))
             st.plotly_chart(fig_i, use_container_width=True)
         else:
-            st.warning("Nessun dato disponibile.")  # FIX #20
+            st.warning("Nessun dato disponibile.")
 
     # ── MODE 3: Fundamentals ─────────────────────────────────
     else:
@@ -1089,7 +1142,7 @@ elif choice == "Multi-Compare":
             "D/E snapshot", "Op.Margin % snapshot", "ROE % snapshot",
         ])
         fund_list = [x.strip().upper() for x in fund_in.split(",") if x.strip()]
-        yrs_back  = st.slider("Anni di storia", 1, 12, 6, key="fy")
+        yrs_back  = st.slider("Anni di storia", 1, 20, 10, key="fy")
 
         if not fund_list:
             st.info("Inserisci almeno un ticker.")
@@ -1138,7 +1191,7 @@ elif choice == "Multi-Compare":
                         has = True
 
                 elif fund_m in ("D/E snapshot", "Op.Margin % snapshot", "ROE % snapshot"):
-                    pass  # handled in snapshot block below
+                    pass
 
                 else:
                     metric_key_map = {
@@ -1152,7 +1205,6 @@ elif choice == "Multi-Compare":
                     mk = metric_key_map.get(fund_m, fund_m)
                     s  = get_quarterly_series(tkr, mk)
                     if not s.empty:
-                        # FIX #10: sort by actual date index before converting to string
                         s2 = s[s.index >= cutoff].sort_index()
                         if not s2.empty:
                             fig_f.add_trace(go.Bar(
@@ -1162,7 +1214,6 @@ elif choice == "Multi-Compare":
                             ))
                             has = True
 
-            # Snapshot bar charts
             if fund_m in ("D/E snapshot", "Op.Margin % snapshot", "ROE % snapshot"):
                 snap_map = {
                     "D/E snapshot":         ("debtToEquity",    100,    "D/E"),
@@ -1192,7 +1243,7 @@ elif choice == "Multi-Compare":
                     }))
                     st.plotly_chart(fig_f, use_container_width=True)
                 else:
-                    st.warning("Nessun dato snapshot disponibile.")  # FIX #20
+                    st.warning("Nessun dato snapshot disponibile.")
 
             elif has:
                 title_map = {
@@ -1213,7 +1264,6 @@ elif choice == "Multi-Compare":
             else:
                 st.warning("Nessun dato disponibile. Prova ticker diversi o una metrica snapshot.")
 
-            # Full snapshot table (always shown)
             st.markdown("---")
             sec("TABELLA FONDAMENTALI SNAPSHOT")
             snap_rows = []
@@ -1240,7 +1290,7 @@ elif choice == "Multi-Compare":
                 st.dataframe(pd.DataFrame(snap_rows).set_index("Ticker"), use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════
-#  PAGE 5 — PORTFOLIO BACKTEST
+#  PAGE 5 — PORTFOLIO BACKTEST (NaN-safe)
 # ═══════════════════════════════════════════════════════════
 elif choice == "Portfolio Backtest":
     page_title("🧪  PORTFOLIO BACKTEST", "Equity curve · Drawdown · Rolling Sharpe · Monthly heatmap · Risk analytics")
@@ -1271,15 +1321,17 @@ elif choice == "Portfolio Backtest":
     b1, b2, b3 = st.columns(3)
     with b1:
         bench_opts = {
-            "S&P 500 (^GSPC)":    "^GSPC",
-            "Nasdaq 100 (^IXIC)": "^IXIC",
+            "S&P 500 (^GSPC)":      "^GSPC",
+            "Nasdaq 100 (^IXIC)":   "^IXIC",
             "MSCI World (VWCE.DE)": "VWCE.DE",
-            "60/40 Custom":       None,
+            "60/40 Custom":         None,
         }
         bench_lbl = st.selectbox("Benchmark", list(bench_opts.keys()))
         bench     = bench_opts[bench_lbl]
-    with b2: years  = st.slider("Orizzonte (anni)", 1, 25, 7, key="bty")
-    with b3: rf_pct = st.slider("Risk-free rate (%)", 0.0, 7.0, 4.2, step=0.1)
+    with b2:
+        years  = st.slider("Orizzonte (anni)", 1, 30, 10, key="bty")
+    with b3:
+        rf_pct = st.slider("Risk-free rate (%)", 0.0, 7.0, 4.2, step=0.1)
 
     if bench is None:
         bc1, bc2 = st.columns(2)
@@ -1310,251 +1362,291 @@ elif choice == "Portfolio Backtest":
         if not frames:
             st.error("Nessun dato scaricato.")
         else:
-            data = pd.DataFrame(frames).dropna(how="all").ffill()
+            # ── Build price matrix ──
+            data = pd.DataFrame(frames).dropna(how="all").ffill().bfill()
+            # Remove columns that are still all-NaN after fill
+            data = data.dropna(axis=1, how="all")
             norm = (data / data.iloc[0]) - 1
 
-            strat_df = pd.DataFrame(index=norm.index)
+            # ── Strategy equity curve ──
+            strat_df = pd.DataFrame(index=data.index)
+            total_w  = 0.0
             for i, a in enumerate(valid_assets):
-                if a in norm.columns:
+                if a in data.columns:
                     strat_df[a] = norm[a] * w_norm[i]
-            strat = strat_df.sum(axis=1)
+                    total_w += w_norm[i]
+            # Re-normalise weights if some assets had no data
+            if total_w > 0 and abs(total_w - 1.0) > 0.01:
+                strat_df = strat_df / total_w
+            strat = strat_df.sum(axis=1).fillna(method="ffill").dropna()
 
-            if bench is None:
-                beq, bbd = bench_eq.upper(), bench_bond.upper()
-                bench_ser  = norm[beq] * 0.6 + norm[bbd] * 0.4 \
-                             if (beq in norm.columns and bbd in norm.columns) else None
-                bench_col  = None
-                bench_name = f"60%{beq}+40%{bbd}"
+            if len(strat) < 2:
+                st.error("Dati insufficienti per il backtest. Controlla i ticker.")
             else:
-                bench_col  = bench
-                bench_ser  = None
-                bench_name = bench_lbl
+                # ── Benchmark ──
+                if bench is None:
+                    beq, bbd = bench_eq.upper(), bench_bond.upper()
+                    if beq in norm.columns and bbd in norm.columns:
+                        bench_ser  = norm[beq] * 0.6 + norm[bbd] * 0.4
+                    elif beq in norm.columns:
+                        bench_ser  = norm[beq]
+                    else:
+                        bench_ser  = None
+                    bench_col  = None
+                    bench_name = f"60%{beq}+40%{bbd}"
+                else:
+                    bench_col  = bench if bench in norm.columns else None
+                    bench_ser  = norm[bench_col] if bench_col else None
+                    bench_name = bench_lbl
 
-            # FIX #11 & #12: use pct_change() for all return-based metrics
-            dr      = strat.pct_change().dropna()
-            tot_ret = strat.iloc[-1] * 100
-            ann_ret = ((1 + strat.iloc[-1]) ** (1 / years) - 1) * 100 if years > 0 else 0
-            vol     = dr.std() * np.sqrt(252) * 100
-            sharpe  = (ann_ret / 100 - rf) / (vol / 100) if vol > 0 else 0
-            dd_s    = ((strat + 1) / (strat + 1).cummax()) - 1
-            max_dd  = dd_s.min() * 100
-            calmar  = ann_ret / abs(max_dd) if max_dd != 0 else 0
-            neg     = dr[dr < 0]
-            down_v  = neg.std() * np.sqrt(252) * 100 if len(neg) > 0 else 0
-            sortino = (ann_ret / 100 - rf) / (down_v / 100) if down_v > 0 else 0
-            arr     = dr.dropna().values
-            var95   = np.percentile(arr, 5) * 100 if len(arr) > 0 else 0
-            cvar95  = arr[arr <= np.percentile(arr, 5)].mean() * 100 if len(arr) > 0 else 0
-            win_r   = (dr > 0).mean() * 100
-            thr     = rf / 252
-            g_o     = dr[dr > thr] - thr
-            l_o     = thr - dr[dr < thr]
-            omega   = g_o.sum() / l_o.sum() if l_o.sum() > 0 else 999
+                # ── Core metrics (NaN-safe) ──
+                actual_years = max((strat.index[-1] - strat.index[0]).days / 365.25, 0.1)
 
-            bench_ann = delta_bench = beta_val = alpha_val = None
-            if bench_col and bench_col in norm.columns:
-                bs        = norm[bench_col]
-                bench_ann = ((1 + bs.iloc[-1]) ** (1 / years) - 1) * 100
-                delta_bench = tot_ret - bs.iloc[-1] * 100
-                br = bs.pct_change().dropna()
-                try:
-                    al = pd.concat([dr, br], axis=1, join="inner").dropna()
-                    al.columns = ["s", "b"]
-                    if len(al) > 10:
-                        cov       = al.cov().iloc[0, 1]
-                        vb        = al["b"].var()
-                        beta_val  = cov / vb if vb != 0 else None
-                        alpha_val = ann_ret - (rf_pct + (beta_val or 0) * (bench_ann - rf_pct))
-                except Exception:
-                    pass
-            elif bench_ser is not None:
-                bs          = bench_ser
-                bench_ann   = ((1 + bs.iloc[-1]) ** (1 / years) - 1) * 100
-                delta_bench = tot_ret - bs.iloc[-1] * 100
+                dr = strat.pct_change().dropna()
+                # Drop extreme outliers (splits, bad data) beyond ±50% daily
+                dr = dr[dr.abs() < 0.50]
 
-            # ── KPI Dashboard ──
-            st.markdown("---")
-            sec("PERFORMANCE DASHBOARD")
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Rendimento Totale", f"{tot_ret:+.2f}%")
-            k2.metric("CAGR",              f"{ann_ret:+.2f}%")
-            k3.metric("Volatilità Annua",  f"{vol:.2f}%")
-            k4.metric("Max Drawdown",      f"{max_dd:.2f}%")
+                tot_ret = float(strat.iloc[-1]) * 100
+                ann_ret = ((1 + tot_ret / 100) ** (1 / actual_years) - 1) * 100
 
-            k5, k6, k7, k8 = st.columns(4)
-            k5.metric("Sharpe Ratio",  f"{sharpe:.3f}")
-            k6.metric("Sortino Ratio", f"{sortino:.3f}")
-            k7.metric("Calmar Ratio",  f"{calmar:.3f}")
-            k8.metric("Omega Ratio",   f"{omega:.2f}")
+                vol_daily = dr.std()
+                vol       = float(vol_daily) * np.sqrt(252) * 100 if not np.isnan(vol_daily) else 0.0
+                sharpe    = (ann_ret / 100 - rf) / (vol / 100) if vol > 0 else 0.0
 
-            k9, k10, k11, k12 = st.columns(4)
-            k9.metric("VaR 95% (giorn.)",  f"{var95:.2f}%")
-            k10.metric("CVaR 95%",         f"{cvar95:.2f}%")
-            k11.metric("Win Rate",         f"{win_r:.1f}%")
-            k12.metric("Beta vs Bench",    f"{beta_val:.2f}" if beta_val is not None else "N/A")
+                # Drawdown — use price level, not returns
+                price_curve = (1 + strat)
+                rolling_max = price_curve.cummax()
+                dd_s        = (price_curve / rolling_max) - 1
+                max_dd      = float(dd_s.min()) * 100
 
-            if delta_bench is not None:
-                da1, da2 = st.columns(2)
-                da1.metric(f"Alpha vs {bench_name}", f"{alpha_val:+.2f}%" if alpha_val is not None else "N/A")
-                da2.metric(f"Delta vs {bench_name}", f"{delta_bench:+.2f}%",
-                           delta="Sovraperforma" if delta_bench > 0 else "Sottoperforma")
+                calmar  = ann_ret / abs(max_dd) if max_dd < 0 else float('inf')
 
-            # ── Equity Curve ──
-            sec("EQUITY CURVE")
-            fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(
-                x=strat.index, y=strat * 100, name="Strategia",
-                line=dict(width=3, color="#3B8EF0"),
-                fill="tozeroy", fillcolor="rgba(59,142,240,0.06)",
-                hovertemplate="%{x|%d %b %Y}<br><b>%{y:.2f}%</b><extra>Strategia</extra>",
-            ))
-            if bench_col and bench_col in norm.columns:
+                neg     = dr[dr < 0]
+                down_v  = float(neg.std()) * np.sqrt(252) * 100 if len(neg) > 1 else 0.0
+                sortino = (ann_ret / 100 - rf) / (down_v / 100) if down_v > 0 else 0.0
+
+                arr_clean = dr.dropna().values
+                var95  = float(np.percentile(arr_clean, 5)) * 100 if len(arr_clean) > 20 else 0.0
+                cvar95 = float(arr_clean[arr_clean <= np.percentile(arr_clean, 5)].mean()) * 100 if len(arr_clean) > 20 else 0.0
+
+                win_r   = float((dr > 0).mean()) * 100
+                thr     = rf / 252
+                g_o     = dr[dr > thr] - thr
+                l_o     = thr - dr[dr < thr]
+                omega   = float(g_o.sum() / l_o.sum()) if float(l_o.sum()) > 0 else 999.0
+
+                # ── Benchmark metrics ──
+                bench_ann = delta_bench = beta_val = alpha_val = None
+                if bench_ser is not None and len(bench_ser.dropna()) > 10:
+                    bs_clean = bench_ser.dropna()
+                    b_actual_years = max((bs_clean.index[-1] - bs_clean.index[0]).days / 365.25, 0.1)
+                    bench_ann   = ((1 + float(bs_clean.iloc[-1])) ** (1 / b_actual_years) - 1) * 100
+                    delta_bench = tot_ret - float(bs_clean.iloc[-1]) * 100
+                    try:
+                        br = bench_ser.pct_change().dropna()
+                        br = br[br.abs() < 0.50]
+                        aligned = pd.concat([dr, br], axis=1, join="inner").dropna()
+                        aligned.columns = ["s", "b"]
+                        if len(aligned) > 30:
+                            cov_val  = float(aligned.cov().iloc[0, 1])
+                            var_b    = float(aligned["b"].var())
+                            beta_val = cov_val / var_b if var_b > 1e-10 else None
+                            if beta_val is not None and bench_ann is not None:
+                                alpha_val = ann_ret - (rf_pct + beta_val * (bench_ann - rf_pct))
+                    except Exception:
+                        pass
+
+                # ── Helper: safe format ──
+                def _fmt(v, suffix="%", decimals=2):
+                    if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+                        return "N/A"
+                    fmt = f"{{:+.{decimals}f}}{suffix}" if suffix == "%" else f"{{:.{decimals}f}}{suffix}"
+                    return fmt.format(v)
+
+                # ── KPI Dashboard ──
+                st.markdown("---")
+                sec("PERFORMANCE DASHBOARD")
+                k1, k2, k3, k4 = st.columns(4)
+                k1.metric("Rendimento Totale", _fmt(tot_ret))
+                k2.metric("CAGR",              _fmt(ann_ret))
+                k3.metric("Volatilità Annua",  f"{vol:.2f}%" if vol else "N/A")
+                k4.metric("Max Drawdown",       _fmt(max_dd))
+
+                k5, k6, k7, k8 = st.columns(4)
+                k5.metric("Sharpe Ratio",  f"{sharpe:.3f}"  if not np.isnan(sharpe)  else "N/A")
+                k6.metric("Sortino Ratio", f"{sortino:.3f}" if not np.isnan(sortino) else "N/A")
+                k7.metric("Calmar Ratio",  f"{calmar:.3f}"  if not np.isinf(calmar)  else "∞")
+                k8.metric("Omega Ratio",   f"{omega:.2f}"   if omega < 999           else ">999")
+
+                k9, k10, k11, k12 = st.columns(4)
+                k9.metric("VaR 95% (giorn.)",  f"{var95:.2f}%" if var95 else "N/A")
+                k10.metric("CVaR 95%",         f"{cvar95:.2f}%" if cvar95 else "N/A")
+                k11.metric("Win Rate",         f"{win_r:.1f}%")
+                k12.metric("Beta vs Bench",    f"{beta_val:.2f}" if beta_val is not None else "N/A")
+
+                k13, k14, k15, k16 = st.columns(4)
+                k13.metric(f"Alpha vs {bench_name}", _fmt(alpha_val) if alpha_val is not None else "N/A")
+                k14.metric(f"Delta vs {bench_name}", _fmt(delta_bench) if delta_bench is not None else "N/A")
+                k15.metric("Anni backtest", f"{actual_years:.1f}")
+                k16.metric("Dati giornalieri", f"{len(dr)}")
+
+                # ── Equity Curve ──
+                sec("EQUITY CURVE")
+                fig_eq = go.Figure()
                 fig_eq.add_trace(go.Scatter(
-                    x=norm.index, y=norm[bench_col] * 100, name=bench_name,
-                    line=dict(width=2, dash="dash", color="#7A9DBE"),
-                    hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>Bench</extra>",
+                    x=strat.index, y=strat * 100, name="Strategia",
+                    line=dict(width=3, color="#3B8EF0"),
+                    fill="tozeroy", fillcolor="rgba(59,142,240,0.06)",
+                    hovertemplate="%{x|%d %b %Y}<br><b>%{y:.2f}%</b><extra>Strategia</extra>",
                 ))
-            elif bench_ser is not None:
-                fig_eq.add_trace(go.Scatter(
-                    x=bench_ser.index, y=bench_ser * 100, name=bench_name,
-                    line=dict(width=2, dash="dash", color="#7A9DBE"),
-                ))
-            for idx, a in enumerate(valid_assets):
-                if a in norm.columns:
+                if bench_ser is not None and len(bench_ser.dropna()) > 2:
                     fig_eq.add_trace(go.Scatter(
-                        x=norm.index, y=norm[a] * 100,
-                        name=f"{a} ({valid_pairs[idx][1]}%)",
-                        line=dict(width=1.2, color=COLORS[(idx + 2) % len(COLORS)]),
-                        opacity=0.5,
+                        x=bench_ser.index, y=bench_ser * 100, name=bench_name,
+                        line=dict(width=2, dash="dash", color="#7A9DBE"),
+                        hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra>Bench</extra>",
                     ))
-            fig_eq.add_hline(y=0, line_dash="dot", line_color="#163860", line_width=1)
-            fig_eq.update_layout(**pl({
-                "xaxis": iaxis(),
-                "yaxis": dict(title="Rendimento %", **plain_axis()),
-                "height": 480, "title": "Equity Curve — Rendimento Cumulativo",
-            }))
-            st.plotly_chart(fig_eq, use_container_width=True)
-
-            # ── Rolling Sharpe ──
-            sec("ROLLING SHARPE (252 GG)")
-            roll_vol = dr.rolling(252).std() * np.sqrt(252)
-            roll_ret = dr.rolling(252).mean() * 252
-            roll_sh  = (roll_ret - rf) / roll_vol
-            fig_rs   = go.Figure()
-            fig_rs.add_trace(go.Scatter(
-                x=roll_sh.index, y=roll_sh, name="Rolling Sharpe",
-                line=dict(color="#3B8EF0", width=1.8),
-                hovertemplate="%{x|%d %b %Y}<br>Sharpe: %{y:.2f}<extra></extra>",
-            ))
-            fig_rs.add_hline(y=0, line_dash="dot", line_color="#163860")
-            fig_rs.add_hline(y=1, line_dash="dot", line_color="#2ECC71",
-                             annotation_text="Sharpe=1", annotation_font_color="#2ECC71")
-            fig_rs.update_layout(**pl({"height": 260, "title": "Rolling Sharpe Ratio (1 anno)"}))
-            st.plotly_chart(fig_rs, use_container_width=True)
-
-            # ── Drawdown ──
-            sec("DRAWDOWN")
-            dd = dd_s * 100
-            fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(
-                x=dd.index, y=dd, name="Drawdown",
-                fill="tozeroy", line=dict(color="#E74C3C", width=1.5),
-                fillcolor="rgba(231,76,60,0.12)",
-                hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra></extra>",
-            ))
-            fig_dd.update_layout(**pl({
-                "xaxis": iaxis(),
-                "yaxis": dict(title="Drawdown %", **plain_axis()),
-                "height": 260, "title": "Drawdown dalla Massima Equity",
-            }))
-            st.plotly_chart(fig_dd, use_container_width=True)
-
-            # ── Monthly Heatmap ──
-            sec("MONTHLY RETURNS HEATMAP")
-            try:
-                mth = strat.resample("ME").last().pct_change().dropna() * 100
-                mdf = pd.DataFrame({"Y": mth.index.year, "M": mth.index.month, "R": mth.values})
-                pvt = mdf.pivot(index="Y", columns="M", values="R")
-                mn  = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"]
-                pvt.columns = [mn[m - 1] for m in pvt.columns]
-                fig_mth = go.Figure(go.Heatmap(
-                    z=pvt.values, x=pvt.columns.tolist(), y=pvt.index.tolist(),
-                    colorscale=[[0, "#E74C3C"], [0.5, "#071220"], [1, "#2ECC71"]],
-                    zmid=0,
-                    text=[[f"{v:.1f}%" if not np.isnan(v) else "" for v in row] for row in pvt.values],
-                    texttemplate="%{text}",
-                    hovertemplate="Anno %{y} · %{x}<br>%{z:.2f}%<extra></extra>",
-                ))
-                fig_mth.update_layout(**pl({
-                    "height": max(180, len(pvt) * 26 + 80),
-                    "title": "Rendimenti Mensili (%)",
+                for idx, a in enumerate(valid_assets):
+                    if a in norm.columns:
+                        fig_eq.add_trace(go.Scatter(
+                            x=norm.index, y=norm[a] * 100,
+                            name=f"{a} ({valid_pairs[idx][1]}%)",
+                            line=dict(width=1.2, color=COLORS[(idx + 2) % len(COLORS)]),
+                            opacity=0.5,
+                        ))
+                fig_eq.add_hline(y=0, line_dash="dot", line_color="#163860", line_width=1)
+                fig_eq.update_layout(**pl({
+                    "xaxis": iaxis(),
+                    "yaxis": dict(title="Rendimento %", **plain_axis()),
+                    "height": 480, "title": f"Equity Curve — {actual_years:.0f} anni · {len(dr)} giorni",
                 }))
-                st.plotly_chart(fig_mth, use_container_width=True)
-            except Exception:
-                st.info("Heatmap mensile non disponibile.")
+                st.plotly_chart(fig_eq, use_container_width=True)
 
-            # ── Return Distribution ──
-            sec("DISTRIBUZIONE RENDIMENTI GIORNALIERI")
-            fig_h = go.Figure()
-            fig_h.add_trace(go.Histogram(x=arr * 100, nbinsx=80, marker_color="#3B8EF0", opacity=0.75))
-            fig_h.add_vline(x=var95, line_dash="dash", line_color="#E74C3C",
-                            annotation_text=f"VaR 95%: {var95:.2f}%", annotation_font_color="#E74C3C")
-            fig_h.add_vline(x=0, line_dash="dot", line_color="#7A9DBE")
-            fig_h.update_layout(**pl({
-                "xaxis": dict(title="Rendimento Giornaliero %", **plain_axis()),
-                "yaxis": dict(title="Frequenza", **plain_axis()),
-                "height": 260, "title": "Distribuzione Rendimenti",
-            }))
-            st.plotly_chart(fig_h, use_container_width=True)
+                # ── Rolling Sharpe ──
+                min_roll = min(252, max(30, len(dr) // 4))
+                if len(dr) >= min_roll:
+                    sec(f"ROLLING SHARPE ({min_roll} GG)")
+                    roll_vol = dr.rolling(min_roll, min_periods=min_roll // 2).std() * np.sqrt(252)
+                    roll_ret = dr.rolling(min_roll, min_periods=min_roll // 2).mean() * 252
+                    roll_sh  = ((roll_ret - rf) / roll_vol).replace([np.inf, -np.inf], np.nan)
+                    fig_rs   = go.Figure()
+                    fig_rs.add_trace(go.Scatter(
+                        x=roll_sh.index, y=roll_sh, name="Rolling Sharpe",
+                        line=dict(color="#3B8EF0", width=1.8),
+                        hovertemplate="%{x|%d %b %Y}<br>Sharpe: %{y:.2f}<extra></extra>",
+                    ))
+                    fig_rs.add_hline(y=0, line_dash="dot", line_color="#163860")
+                    fig_rs.add_hline(y=1, line_dash="dot", line_color="#2ECC71",
+                                     annotation_text="Sharpe=1", annotation_font_color="#2ECC71")
+                    fig_rs.update_layout(**pl({"height": 260, "title": f"Rolling Sharpe ({min_roll}gg)"}))
+                    st.plotly_chart(fig_rs, use_container_width=True)
 
-            # ── Correlation ──
-            avail = [a for a in valid_assets if a in norm.columns]
-            if len(avail) >= 2:
-                sec("CORRELAZIONE ASSET")
-                corr_df = norm[avail].pct_change().dropna().corr()
-                fig_co  = go.Figure(go.Heatmap(
-                    z=corr_df.values, x=corr_df.columns.tolist(), y=corr_df.index.tolist(),
-                    colorscale=[[0, "#E74C3C"], [0.5, "#071220"], [1, "#2ECC71"]],
-                    zmid=0, text=corr_df.round(2).values, texttemplate="%{text}",
+                # ── Drawdown ──
+                sec("DRAWDOWN")
+                dd_pct = dd_s * 100
+                fig_dd = go.Figure()
+                fig_dd.add_trace(go.Scatter(
+                    x=dd_pct.index, y=dd_pct, name="Drawdown",
+                    fill="tozeroy", line=dict(color="#E74C3C", width=1.5),
+                    fillcolor="rgba(231,76,60,0.12)",
+                    hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra></extra>",
                 ))
-                fig_co.update_layout(**pl({"height": 320, "title": "Correlazione tra Asset"}))
-                st.plotly_chart(fig_co, use_container_width=True)
+                fig_dd.update_layout(**pl({
+                    "xaxis": iaxis(),
+                    "yaxis": dict(title="Drawdown %", **plain_axis()),
+                    "height": 260, "title": "Drawdown dalla Massima Equity",
+                }))
+                st.plotly_chart(fig_dd, use_container_width=True)
 
-            # ── Smart Suggestions ──
-            st.markdown("---")
-            sec("ANALISI E SUGGERIMENTI")
-            tips = []
-            if sharpe < 0:
-                tips.append(f"🔴 <b>Sharpe negativo ({sharpe:.2f})</b> — Rendimento sotto il risk-free ({rf_pct:.1f}%). Individua l'asset con peggior contributo e sostituiscilo.")
-            elif sharpe < 0.5:
-                tips.append(f"🟡 <b>Sharpe basso ({sharpe:.2f})</b> — Ogni punto di vol genera poco rendimento. Aggiungi asset decorrelati: GLD, TLT, REITs.")
-            elif sharpe >= 1.5:
-                tips.append(f"🏆 <b>Sharpe elevato ({sharpe:.2f})</b> — Eccellente. Verifica su periodo più lungo per survivorship bias.")
-            else:
-                tips.append(f"✅ <b>Sharpe accettabile ({sharpe:.2f})</b> — Obiettivo: superare 1.0 per alfa costante.")
-            if vol > 25:
-                tips.append(f"⚡ <b>Volatilità alta ({vol:.1f}%)</b> — Considera 15-25% in bond aggregati per protezione.")
-            if max_dd < -40:
-                tips.append(f"💥 <b>Drawdown estremo ({max_dd:.1f}%)</b> — Implementa risk parity o position sizing Kelly.")
-            if var95 < -3:
-                tips.append(f"📉 <b>VaR 95% elevato ({var95:.2f}%/gg)</b> — 1 giorno su 20 rischi una perdita > {abs(var95):.1f}%.")
-            if len(valid_assets) < 3:
-                tips.append(f"🔀 <b>Bassa diversificazione ({len(valid_assets)} asset)</b> — 8-15 asset non correlati sono ottimali.")
-            if not tips:
-                tips.append("ℹ️ Parametri nella norma. Nessun segnale critico.")
-            for tip in tips:
-                st.markdown(
-                    f"<div style='background:linear-gradient(135deg,#071A30,#0A1E38);border-left:3px solid #3B8EF0;"
-                    f"border-radius:3px;padding:0.75rem 1rem;margin-bottom:0.45rem;font-size:0.85rem;"
-                    f"line-height:1.7;color:#D8E4F0'>{tip}</div>",
-                    unsafe_allow_html=True,
-                )
+                # ── Monthly Heatmap ──
+                sec("MONTHLY RETURNS HEATMAP")
+                try:
+                    mth = strat.resample("ME").last().pct_change().dropna() * 100
+                    mth = mth[mth.abs() < 50]  # drop extreme outliers
+                    mdf = pd.DataFrame({"Y": mth.index.year, "M": mth.index.month, "R": mth.values})
+                    pvt = mdf.pivot(index="Y", columns="M", values="R")
+                    mn  = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"]
+                    pvt.columns = [mn[m - 1] for m in pvt.columns]
+                    fig_mth = go.Figure(go.Heatmap(
+                        z=pvt.values, x=pvt.columns.tolist(), y=pvt.index.tolist(),
+                        colorscale=[[0, "#E74C3C"], [0.5, "#071220"], [1, "#2ECC71"]],
+                        zmid=0,
+                        text=[[f"{v:.1f}%" if not np.isnan(v) else "" for v in row] for row in pvt.values],
+                        texttemplate="%{text}",
+                        hovertemplate="Anno %{y} · %{x}<br>%{z:.2f}%<extra></extra>",
+                    ))
+                    fig_mth.update_layout(**pl({
+                        "height": max(220, len(pvt) * 28 + 80),
+                        "title": "Rendimenti Mensili (%)",
+                    }))
+                    st.plotly_chart(fig_mth, use_container_width=True)
+                except Exception as e:
+                    st.info(f"Heatmap mensile non disponibile: {e}")
+
+                # ── Return Distribution ──
+                sec("DISTRIBUZIONE RENDIMENTI GIORNALIERI")
+                fig_h = go.Figure()
+                fig_h.add_trace(go.Histogram(x=arr_clean * 100, nbinsx=80, marker_color="#3B8EF0", opacity=0.75))
+                if var95 != 0:
+                    fig_h.add_vline(x=var95, line_dash="dash", line_color="#E74C3C",
+                                    annotation_text=f"VaR 95%: {var95:.2f}%",
+                                    annotation_font_color="#E74C3C")
+                fig_h.add_vline(x=0, line_dash="dot", line_color="#7A9DBE")
+                fig_h.update_layout(**pl({
+                    "xaxis": dict(title="Rendimento Giornaliero %", **plain_axis()),
+                    "yaxis": dict(title="Frequenza", **plain_axis()),
+                    "height": 260, "title": "Distribuzione Rendimenti",
+                }))
+                st.plotly_chart(fig_h, use_container_width=True)
+
+                # ── Correlation ──
+                avail = [a for a in valid_assets if a in norm.columns]
+                if len(avail) >= 2:
+                    sec("CORRELAZIONE ASSET")
+                    corr_df = norm[avail].pct_change().dropna().corr()
+                    fig_co  = go.Figure(go.Heatmap(
+                        z=corr_df.values, x=corr_df.columns.tolist(), y=corr_df.index.tolist(),
+                        colorscale=[[0, "#E74C3C"], [0.5, "#071220"], [1, "#2ECC71"]],
+                        zmid=0, text=corr_df.round(2).values, texttemplate="%{text}",
+                    ))
+                    fig_co.update_layout(**pl({"height": 320, "title": "Correlazione tra Asset"}))
+                    st.plotly_chart(fig_co, use_container_width=True)
+
+                # ── Smart Suggestions ──
+                st.markdown("---")
+                sec("ANALISI E SUGGERIMENTI")
+                tips = []
+                if not np.isnan(sharpe):
+                    if sharpe < 0:
+                        tips.append(f"🔴 <b>Sharpe negativo ({sharpe:.2f})</b> — Rendimento sotto il risk-free ({rf_pct:.1f}%). Individua l'asset con peggior contributo e sostituiscilo.")
+                    elif sharpe < 0.5:
+                        tips.append(f"🟡 <b>Sharpe basso ({sharpe:.2f})</b> — Ogni punto di vol genera poco rendimento. Aggiungi asset decorrelati: GLD, TLT, REITs.")
+                    elif sharpe >= 1.5:
+                        tips.append(f"🏆 <b>Sharpe elevato ({sharpe:.2f})</b> — Eccellente. Verifica su periodo più lungo per survivorship bias.")
+                    else:
+                        tips.append(f"✅ <b>Sharpe accettabile ({sharpe:.2f})</b> — Obiettivo: superare 1.0 per alfa costante.")
+                if vol > 25:
+                    tips.append(f"⚡ <b>Volatilità alta ({vol:.1f}%)</b> — Considera 15-25% in bond aggregati per protezione.")
+                if max_dd < -40:
+                    tips.append(f"💥 <b>Drawdown estremo ({max_dd:.1f}%)</b> — Implementa risk parity o position sizing Kelly.")
+                if var95 < -3:
+                    tips.append(f"📉 <b>VaR 95% elevato ({var95:.2f}%/gg)</b> — 1 giorno su 20 rischi una perdita > {abs(var95):.1f}%.")
+                if len(valid_assets) < 3:
+                    tips.append(f"🔀 <b>Bassa diversificazione ({len(valid_assets)} asset)</b> — 8-15 asset non correlati sono ottimali.")
+                if not tips:
+                    tips.append("ℹ️ Parametri nella norma. Nessun segnale critico.")
+                for tip in tips:
+                    st.markdown(
+                        f"<div style='background:linear-gradient(135deg,#071A30,#0A1E38);border-left:3px solid #3B8EF0;"
+                        f"border-radius:3px;padding:0.75rem 1rem;margin-bottom:0.45rem;font-size:0.85rem;"
+                        f"line-height:1.7;color:#D8E4F0'>{tip}</div>",
+                        unsafe_allow_html=True,
+                    )
 
     elif run_bt and tw != 100:
         st.error("I pesi devono sommare a 100%.")
 
 # ═══════════════════════════════════════════════════════════
-#  PAGE 6 — STOCK SCREENER
+#  PAGE 6 — STOCK SCREENER (universo ~1000 ticker)
 # ═══════════════════════════════════════════════════════════
 elif choice == "Stock Screener":
 
@@ -1565,7 +1657,6 @@ elif choice == "Stock Screener":
                 st.session_state.screener_selected = None
                 st.rerun()
         page_title(f"⌨️  ANALISI — {target}")
-        # FIX #7: reuse already-fetched info rather than re-fetching inside show_bloomberg
         inf_s    = fetch_info(target)
         sector_s = inf_s.get("sector", "") if inf_s else ""
         peers_d  = SECTOR_PEERS.get(sector_s, "SPY, QQQ, IWM")
@@ -1611,7 +1702,7 @@ elif choice == "Stock Screener":
         r1, r2 = st.columns(2)
         with r1:
             n_scan  = st.selectbox("Ticker da scansionare",
-                                   ["200 (~1min)", "400 (~2min)", "700 (~4min)", "Tutti (~12min+)"])
+                                   ["200 (~1min)", "400 (~2min)", "700 (~4min)", "1000 (~8min)", "Tutti (~15min+)"])
         with r2:
             sort_by = st.selectbox("Ordina per",
                                    ["Market Cap", "P/E", "EV/EBITDA", "ROE %", "Op.Margin %", "Div Yield"])
@@ -1619,9 +1710,9 @@ elif choice == "Stock Screener":
         run_sc = st.button("▶  ESEGUI SCREENING", use_container_width=True)
 
         if run_sc:
-            n_map = {"200 (~1min)": 200, "400 (~2min)": 400, "700 (~4min)": 700, "Tutti (~12min+)": len(UNIVERSE)}
+            n_map = {"200 (~1min)": 200, "400 (~2min)": 400, "700 (~4min)": 700,
+                     "1000 (~8min)": 1000, "Tutti (~15min+)": len(UNIVERSE)}
             n     = n_map.get(n_scan, 200)
-            # FIX #13: deterministic slice instead of random.sample() for reproducible results
             scan  = UNIVERSE[:n]
 
             results = []
@@ -1690,7 +1781,6 @@ elif choice == "Stock Screener":
                         "Beta":     f"{bt:.2f}"        if bt  else "N/A",
                         "D/E":      f"{de/100:.2f}"    if de  else "N/A",
                         "Cap$B":    f"{mc/1e9:.1f}"    if mc  else "N/A",
-                        # sort keys (prefixed _ so they don't appear in the table)
                         "_mc":  mc / 1e9 if mc else 0,
                         "_pe":  pe       if pe else 999,
                         "_ev":  eve      if eve else 999,
@@ -1713,9 +1803,8 @@ elif choice == "Stock Screener":
             results.sort(key=lambda x: x.get(sk, 0), reverse=rv)
             st.session_state.screener_results = results
 
-        # FIX #24: use sentinel to distinguish never-run from ran-with-no-results
         if st.session_state.screener_results is _SCREENER_NOT_RUN:
-            pass  # nothing to show yet
+            pass
         elif len(st.session_state.screener_results) == 0:
             st.warning("Nessuna azienda trovata. Allarga i filtri.")
         else:
@@ -1754,58 +1843,6 @@ elif choice == "Bloomberg Insights":
             st.session_state.bi_peers = SECTOR_PEERS.get(s_bi, "SPY, QQQ, IWM, GLD")
 
         show_bloomberg(st.session_state.bi_ticker, peers_default=st.session_state.bi_peers)
+PYEOF
+echo "Done. Lines: $(wc -l < /home/claude/navy_terminal_pro_v4.py)"
 
-# ═══════════════════════════════════════════════════════════
-#  PAGE 8 — MARKET NEWS
-# ═══════════════════════════════════════════════════════════
-elif choice == "Market News":
-    page_title("📰  MARKET NEWS", "Notizie in tempo reale per mercati e singoli titoli")
-
-    sec("NEWS PER TICKER")
-    news_tk = st.text_input("Ticker", "AAPL, NVDA, TSLA", placeholder="Inserisci uno o più ticker (virgola)")
-    tk_news = [x.strip().upper() for x in news_tk.split(",") if x.strip()]
-
-    for tkr in tk_news[:5]:
-        st.markdown(f"<div class='sec-hdr' style='margin-top:1rem'>📌 {tkr}</div>", unsafe_allow_html=True)
-        try:
-            news = yf.Ticker(tkr).news or []
-            if not news:
-                st.caption("Nessuna notizia disponibile.")
-                continue
-            for n in news[:6]:
-                title     = n.get("title", "")
-                link      = n.get("link", "#")
-                publisher = n.get("publisher", "")
-                ptime     = n.get("providerPublishTime", 0)
-                # FIX #19: guard against invalid timestamps
-                try:
-                    ts = datetime.fromtimestamp(int(ptime)).strftime("%d %b %Y %H:%M") if ptime else ""
-                except (OSError, OverflowError, ValueError):
-                    ts = ""
-                if title:
-                    st.markdown(f"""
-                    <div style='background:linear-gradient(135deg,#071A30,#0A1E38);border:1px solid #0E2440;
-                                border-left:3px solid #3B8EF0;border-radius:3px;padding:0.65rem 1rem;margin-bottom:0.4rem'>
-                      <a href='{link}' target='_blank' style='color:#D8E4F0;text-decoration:none;font-size:0.88rem;font-weight:500'>{title}</a>
-                      <div style='font-size:0.7rem;color:#7A9DBE;margin-top:4px'>{publisher} &nbsp;·&nbsp; {ts}</div>
-                    </div>""", unsafe_allow_html=True)
-        except Exception:
-            st.caption(f"Notizie non disponibili per {tkr}.")
-
-    st.markdown("---")
-    sec("FONTI ESTERNE RACCOMANDATE")
-    links = [
-        ("Bloomberg Markets",  "https://www.bloomberg.com/markets"),
-        ("Reuters Finance",    "https://www.reuters.com/finance/"),
-        ("Financial Times",    "https://www.ft.com/markets"),
-        ("Yahoo Finance",      "https://finance.yahoo.com"),
-        ("Seeking Alpha",      "https://seekingalpha.com"),
-        ("Il Sole 24 Ore",     "https://www.ilsole24ore.com/finanza-e-mercati"),
-    ]
-    cols_n = st.columns(3)
-    for i, (name, url) in enumerate(links):
-        cols_n[i % 3].markdown(f"""
-        <a href='{url}' target='_blank' style='display:block;background:linear-gradient(135deg,#071A30,#0A1E38);
-           border:1px solid #0E2440;border-radius:3px;padding:0.6rem 0.9rem;text-decoration:none;
-           color:#3B8EF0;font-family:IBM Plex Mono,monospace;font-size:0.78rem;
-           margin-bottom:0.5rem;letter-spacing:0.04em'>📎 {name}</a>""", unsafe_allow_html=True)
