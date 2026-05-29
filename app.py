@@ -1842,6 +1842,4 @@ elif choice == "Bloomberg Insights":
             st.session_state.bi_peers = SECTOR_PEERS.get(s_bi, "SPY, QQQ, IWM, GLD")
 
         show_bloomberg(st.session_state.bi_ticker, peers_default=st.session_state.bi_peers)
-PYEOF
-echo "Done. Lines: $(wc -l < /home/claude/navy_terminal_pro_v4.py)"
 
