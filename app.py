@@ -352,165 +352,234 @@ def get_quarterly_series(ticker: str, metric: str) -> pd.Series:
 # ─────────────────────────────────────────────
 #  UNIVERSE — ~1000 tickers
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  CURATED_TICKERS — ~1000 ticker globali di qualità
+#  SOSTITUISCI il vecchio blocco CURATED_TICKERS con questo intero blocco
+# ─────────────────────────────────────────────────────────────────────────────
 CURATED_TICKERS = [
-    # ── US MEGA CAP ──────────────────────────────────────────────
-    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","JPM","V",
-    "UNH","XOM","JNJ","PG","MA","HD","ABBV","MRK","CVX","PEP","KO","LIN",
-    "TMO","DHR","NEE","AMD","INTC","QCOM","TXN","AMAT","LRCX","MU",
-    "PANW","ADBE","CRM","NOW","ORCL","IBM","CSCO","DELL","HPQ","WDC",
-    # ── US LARGE CAP TECH ────────────────────────────────────────
-    "SNOW","PLTR","COIN","RBLX","UBER","LYFT","ABNB","BKNG","EXPE",
-    "NFLX","DIS","CMCSA","T","VZ","CHTR","TMUS","SIRI",
-    "ARM","SMCI","MRVL","KLAC","MPWR","ENPH","FSLR","SEDG","RUN",
-    "FTNT","CRWD","ZS","OKTA","DDOG","MDB","GTLB","ESTC","HUBS",
-    "TTD","ROKU","SNAP","PINS","SPOT","DUOL",
-    # ── US LARGE CAP TECH (additional) ──────────────────────────
-    "TWLO","DOCN","CFLT","S","SMAR","APPF","PCTY","COUP","GWRE","AZPN",
-    "VEEV","HIMS","ACAD","SDGR","RXRX","ASAN","BASE","BOX","DBX","DOCU",
-    "FIVN","FSLY","JAMF","MNDY","NET","NTNX","PSTG","PUBM","RAMP","SPRK",
-    "SUMO","TASK","TOST","U","WCLD","WIX","ZI","ZM","ZUO",
-    # ── US FINANCIALS ────────────────────────────────────────────
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — MEGA CAP & S&P 500 CORE
+    # ══════════════════════════════════════════════════════════════
+    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","AVGO","JPM",
+    "V","UNH","XOM","JNJ","PG","MA","HD","ABBV","MRK","CVX",
+    "PEP","KO","LIN","TMO","DHR","AMD","INTC","QCOM","TXN","AMAT",
+    "LRCX","MU","ORCL","IBM","CSCO","DELL","ACN","SAP","NOW","CRM",
+    "ADBE","PANW","FTNT","CRWD","ZS","SNPS","CDNS","ANSS","PTC","EPAM",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — TECNOLOGIA & SOFTWARE
+    # ══════════════════════════════════════════════════════════════
+    "NFLX","SPOT","RBLX","UBER","LYFT","ABNB","BKNG","EXPE","TRIP","PCLN",
+    "SNOW","PLTR","COIN","HOOD","SOFI","AFRM","UPST","LC","OPEN","OFFERPAD",
+    "ARM","SMCI","MRVL","KLAC","MPWR","ONTO","FORM","ACLS","COHU","ENTG",
+    "DDOG","MDB","GTLB","ESTC","HUBS","TTD","ROKU","SNAP","PINS","DUOL",
+    "TWLO","DOCN","CFLT","NET","NTNX","PSTG","ZM","ZI","ASAN","MNDY",
+    "APPF","PCTY","PAYC","WEX","FLYW","RELY","ALKT","JAMF","BRZE","SPRINKLR",
+    "PATH","AI","BBAI","SOUN","IONQ","RGTI","QBTS","ARQQ","QUBT",
+    "VEEV","CSGP","VNET","WK","ALTR","NCNO","PWSC","WEAVE","AVDX","RDDT",
+    "OKTA","SAIL","CYBR","TENB","QLYS","RBRK","S","IBRX","RPD","SCWX",
+    "FIVN","NICE","CIEN","VIAV","LITE","IIVI","COHR","II-VI","NPKI","OLED",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — FINANZA & BANCHE
+    # ══════════════════════════════════════════════════════════════
     "BAC","WFC","GS","MS","BLK","SCHW","C","USB","PNC","TFC",
-    "AXP","COF","DFS","SYF","ALLY","SOFI","AFRM","UPST",
-    "BX","KKR","APO","CG","ARES","TPG",
+    "AXP","COF","DFS","SYF","ALLY","OMF","SLM","NAVI","CURO","ENOVA",
+    "BX","KKR","APO","CG","ARES","TPG","HLI","LAZ","EVR","PJT",
     "CB","PGR","TRV","AIG","MET","PRU","AFL","ALL","CINF","HIG",
-    "FITB","HBAN","RF","CFG","KEY","ZION","CMA","SNV","WAL","PACW",
-    "NDAQ","ICE","CME","CBOE","MKTX","LPLA","RJF","SF","STIFEL",
-    "V","MA","PYPL","SQ","FIS","FISV","GPN","WU","MQ","FOUR",
-    # ── US HEALTHCARE ────────────────────────────────────────────
-    "MRNA","PFE","BMY","GILD","REGN","VRTX","BIIB","ILMN","IQV",
-    "MCK","ABC","CAH","CVS","CI","HUM","ELV","MOH","CNC",
-    "BSX","MDT","SYK","EW","ZBH","BAX","BDX","IDXX","HOLX",
-    "LLY","NVO","AZN","GSK","NVS",
-    "ALGN","DXCM","ISRG","ABT","A","RMD","PODD","INSP","NVCR","ENVA",
-    "INVA","JAZZ","NBIX","RARE","SRPT","BLUE","FATE","SAGE","IONS","ALNY",
-    "BMRN","EXAS","GKOS","HALO","IMAB","ITRI","LGND","MANH","MASI","MMSI",
-    "NARI","NTRA","NVAX","OFIX","OMCL","OPCH","QDEL","RGEN","RLAY","RYTM",
-    # ── US CONSUMER ──────────────────────────────────────────────
-    "COST","WMT","TGT","DG","DLTR","KR","SFM",
-    "NKE","LULU","UAA","HBI","PVH","RL","TPR","CPRI","VFC",
+    "FITB","HBAN","RF","CFG","KEY","ZION","CMA","WAL","WBS","BOKF",
+    "NDAQ","ICE","CME","CBOE","MKTX","LPLA","RJF","SF","STIFL","PIPR",
+    "PYPL","SQ","GPN","FIS","FISV","WU","MQ","FOUR","PAYO","FLYW",
+    "V","MA","AMEX","ADS","CATM","EVTC","PRAA","ECPG","WRLD","CURO",
+    "VOYA","LNC","GL","FG","RGA","REINSURANCE","CNO","AIZ","EQH","BHF",
+    "SIVB","PACW","WAL","EWBC","FFIN","IBOC","CVBF","UBSI","FULT","GBCI",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — HEALTHCARE & BIOTECH
+    # ══════════════════════════════════════════════════════════════
+    "LLY","ABBV","JNJ","MRK","PFE","BMY","AMGN","GILD","REGN","VRTX",
+    "BIIB","ILMN","IQV","TMO","DHR","A","BDX","BSX","MDT","SYK",
+    "EW","ZBH","BAX","IDXX","HOLX","ISRG","ALGN","DXCM","PODD","INSP",
+    "MRNA","NVAX","BNTX","ARCT","CRSP","EDIT","NTLA","BEAM","FATE","BLUE",
+    "ALNY","IONS","SRPT","RARE","BMRN","NBIX","JAZZ","ACAD","SAGE","INVA",
+    "EXAS","NTRA","EXACT","GRAIL","SDGR","RXRX","RVMD","KYMR","KROS","ARQT",
+    "MCK","ABC","CAH","CVS","CI","HUM","ELV","MOH","CNC","UNH",
+    "RMD","NVCR","OMCL","MASI","MMSI","NARI","GKOS","OFIX","QDEL","HAEMONETICS",
+    "VRTX","HALO","LGND","IMAB","ACAD","PRGO","ENDP","AMNEAL","LMNX","NTUS",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — CONSUMER (CICLICO E DIFENSIVO)
+    # ══════════════════════════════════════════════════════════════
+    "COST","WMT","TGT","DG","DLTR","KR","SFM","BJ","GO","FIVE",
+    "NKE","LULU","UAA","PVH","RL","TPR","CPRI","VFC","HBI","SKX",
     "MCD","SBUX","YUM","CMG","DPZ","QSR","WEN","JACK","SHAK","TXRH",
-    "F","GM","RIVN","LCID","TM","VWAGY",
-    "AMGN","DXCM","ISRG","ABT","A",
-    "BBY","ETSY","EBAY","CHWY","W","RH","PTON","NWSA","NYT","PARA",
-    "CL","CHD","CLX","CLOROX","EL","KVUE","MNST","CELH","KHC","GIS",
-    "CPB","CAG","MKC","SJM","HRL","TSN","SAFM","CALM","LANC",
-    "LOW","SHW","MAS","FBHS","TREX","AZEK","BECN","BLDR","IBP","SITE",
-    # ── US INDUSTRIALS ───────────────────────────────────────────
-    "BA","CAT","DE","GE","HON","RTX","LMT","NOC","GD","LHX",
-    "MMM","EMR","ETN","PH","ROK","AME","FTV","XYL","NDSN",
-    "UPS","FDX","CHRW","EXPD","XPO","SAIA","ODFL","JBHT",
-    "GNRC","ALLE","CARR","OTIS","IR","JCI","TT","VRT","AAON","ACHR",
-    "AXON","CACI","LDOS","BAH","SAIC","DRS","HII","MOOG","TDG","HWM",
-    "CW","ESE","HEICO","KTOS","MRCY","OSK","PLTR","RBC","SPR","TXT",
-    "WM","RSG","CWST","SRCL","CLH","ECOL","US","HCCI","IBG","KCLI",
-    # ── US ENERGY ────────────────────────────────────────────────
-    "EOG","COP","OXY","DVN","MRO","APA","FANG",
-    "SLB","HAL","BKR","NOV","HP",
-    "CEG","TLN","CCJ","NNE","OKLO","SMR","VST","NRG",
-    "CVE","IMO","MPC","PSX","VLO","DKL","CAPL","HFC","DINO","PARR",
-    "KMI","WMB","ET","MPLX","PAA","ENB","TRP","OKE","LNG","CQP",
-    # ── US REITS & UTILITIES ─────────────────────────────────────
-    "AMT","PLD","EQIX","CCI","PSA","SPG","O","WELL","DLR",
-    "AVB","EQR","INVH","AMH","NNN","WPC","STAG",
+    "CL","CHD","CLX","EL","KHC","GIS","CPB","CAG","MKC","SJM",
+    "KO","PEP","MNST","CELH","KDP","FIZZ","COKE","PRMB","MGPI","STZ",
+    "PG","KVUE","CL","HENKEL","CENT","EPC","SPB","ACCO","EDGEWELL",
+    "F","GM","RIVN","LCID","STLA","HOG","FOXF","DORMAN","MPAA","LKQ",
+    "LOW","HD","SHW","MAS","FBHS","TREX","AZEK","BECN","BLDR","IBP",
+    "BBY","ETSY","EBAY","CHWY","W","RH","PTON","BIRD","FIGS","CROX",
+    "MAR","HLT","IHG","WH","H","STAY","APLE","PK","RHP","SHO",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — INDUSTRIALI & DIFESA
+    # ══════════════════════════════════════════════════════════════
+    "GE","HON","MMM","EMR","ETN","PH","ROK","AME","FTV","XYL",
+    "BA","RTX","LMT","NOC","GD","LHX","HII","TDG","HWM","CW",
+    "CAT","DE","PCAR","AGCO","CNH","OSK","TEX","ACCO","GNRC","ALLE",
+    "CARR","OTIS","IR","JCI","TT","VRT","AAON","APOG","AQNB","BWXT",
+    "AXON","CACI","LDOS","BAH","SAIC","DRS","KTOS","MRCY","PLTR","MOOG",
+    "UPS","FDX","CHRW","EXPD","XPO","SAIA","ODFL","JBHT","HUBG","WERN",
+    "WM","RSG","CWST","SRCL","CLH","US","NWPX","ARIS","ECOLAB","CLEAN",
+    "GNRC","REXNORD","FELE","FLOW","IDEX","GRACO","WATTS","ESCO","EXE","GFF",
+    "SPR","TXT","HEICO","MOOG","DRS","KTOS","AVAV","JOBY","ACHR","ARCHER",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — ENERGIA
+    # ══════════════════════════════════════════════════════════════
+    "XOM","CVX","COP","EOG","OXY","DVN","MRO","APA","FANG","PR",
+    "SLB","HAL","BKR","NOV","HP","RIG","VAL","NE","PD","WHD",
+    "MPC","PSX","VLO","DKL","CAPL","HFC","DINO","PARR","CVRR","CALUMET",
+    "KMI","WMB","ET","MPLX","PAA","OKE","LNG","CQP","TRGP","AM",
+    "CEG","TLN","CCJ","NNE","OKLO","SMR","VST","NRG","AES","DYN",
+    "ENPH","FSLR","SEDG","RUN","NOVA","ARRY","SHLS","AMPS","STEM","FREYR",
+    "CVE","SU","CNQ","TRP","ENB","PPL","AltaGas","KEY","ATCO","GEI",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — REAL ESTATE & UTILITIES
+    # ══════════════════════════════════════════════════════════════
+    "AMT","PLD","EQIX","CCI","PSA","SPG","O","WELL","DLR","VTR",
+    "AVB","EQR","INVH","AMH","NNN","WPC","STAG","VICI","GLPI","MGP",
+    "HST","RHP","PK","SHO","APLE","BRSP","CLNC","BXMT","SACH","LADR",
     "NEE","DUK","SO","AEP","EXC","XEL","ED","WEC","DTE","PPL",
-    "AWK","CMS","LNT","OGE","EVRG","IDACORP","CLECO","NSTAR","UIL","ALE",
-    "VTR","PEAK","HST","RHP","PKI","SUI","ELS","UDR","CPT","ESS",
-    "NLY","AGNC","TWO","MITT","ORC","ARR","NYMT","BXMT","SACH","LADR",
-    # ── US MATERIALS ─────────────────────────────────────────────
-    "NEM","GOLD","AEM","KGC","FNV","WPM","PAAS",
-    "FCX","SCCO","AA","CENX","MP",
-    "DD","DOW","LYB","CE","OLN","WLK","EMN",
-    "NUE","STLD","CLF","X","CMC",
-    "APD","ALB","ECL","IFF","PPG","RPM","VHI","HUN","AXTA","OLIN",
+    "AWK","CMS","LNT","EVRG","IDACORP","AVA","NWE","OGE","UTL","PNW",
+    "NLY","AGNC","TWO","MITT","ORC","ARR","NYMT","RITM","ACRE","GPMT",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — MATERIALI & MINING
+    # ══════════════════════════════════════════════════════════════
+    "NEM","GOLD","AEM","KGC","FNV","WPM","PAAS","CDE","HL","EXK",
+    "FCX","SCCO","AA","CENX","MP","NOVS","LTHM","ALB","LIVENT","SQM",
+    "DD","DOW","LYB","CE","OLN","WLK","EMN","HUN","AXTA","OLIN",
+    "NUE","STLD","CLF","X","CMC","ZEUS","IIIN","GLP","WS","HZNP",
+    "APD","LIN","ECL","IFF","PPG","RPM","SHW","NVCR","IOSP","MTRN",
     "BALL","PKG","IP","SEE","SLGN","SON","ATI","HAYN","KALU","RYI",
-    # ── POPULAR / GROWTH ─────────────────────────────────────────
-    "DKNG","PENN","MGM","WYNN","LVS","CZR",
-    "GME","AMC","BBWI",
-    "CVNA","KMX","AN","LAD",
-    "SQ","PYPL","WU","MQ","FOUR","GPN","FIS","FISV",
-    "PATH","AI","BBAI","SOUN","IREN","CORZ","RIOT","MARA","CLSK",
-    "IONQ","RGTI","QBTS",
-    "HOOD","LCID","NKLA","HYLN","GOEV","FSR","ARVL","WKHS","SOLO","AYRO",
-    "SPCE","RKT","OPEN","UWMC","GHVI","PSTH","COVA","AJAX","DUNE","FTPA",
-    # ── ETFs ─────────────────────────────────────────────────────
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — MEDIA, ENTERTAINMENT & GAMING
+    # ══════════════════════════════════════════════════════════════
+    "DIS","CMCSA","NFLX","WBD","PARA","FOX","FOXA","NYT","NWSA","IAC",
+    "EA","TTWO","ATVI","RBLX","GMBL","DKNG","PENN","MGM","WYNN","LVS",
+    "CZR","BYD","CHDN","SRAD","GENI","EVERI","AGS","PLBY","HIMS","ONON",
+    "SPOT","SONO","IACI","CARG","CARS","TM","CRTV","SSTK","GCI","NYT",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — ETF (SOLO I PRINCIPALI)
+    # ══════════════════════════════════════════════════════════════
     "SPY","QQQ","IWM","VOO","VTI","VEA","VWO","VXUS",
-    "GLD","SLV","IAU","GDX","GDXJ","USO","UNG",
-    "TLT","IEF","SHY","AGG","BND","HYG","LQD","TIP",
+    "GLD","SLV","IAU","GDX","GDXJ","USO","TLT","IEF","AGG","HYG",
     "XLK","XLF","XLV","XLE","XLI","XLP","XLU","XLB","XLRE","XLC",
-    "ARKK","ARKG","ARKW","ARKF","ARKQ",
-    "SOXL","SOXS","TQQQ","UPRO","SPXU","UVXY","VXX",
-    "IBIT","ETHA","GBTC","FBTC",
-    "VIG","SCHD","DGRO","DVY","SDY","HDV","VYM","NOBL","QUAL","MTUM",
-    "VOOG","MGK","VUG","VTV","IVW","IVE","RSP","EQLW","SPMO","SPGP",
-    "HACK","CIBR","BUG","CLOU","WCLD","SKYY","IGV","FDN","FINX","ARKX",
-    "JETS","AWAY","HOTEL","BITE","BFIT","NERD","ESPO","HERO","GAMR","VICE",
-    "ICLN","ACES","QCLN","TAN","FAN","LIT","BATT","DRIV","IDRV","KARS",
-    # ── EUROPA ───────────────────────────────────────────────────
-    "ASML.AS","PHIA.AS","HEIA.AS","INGA.AS","UNA.AS","WKL.AS","ADYEN.AS",
-    "SAP.DE","BMW.DE","SIE.DE","BAYN.DE","MBG.DE","ALV.DE","BAS.DE",
-    "VOW3.DE","DTE.DE","RWE.DE","HEN3.DE","DBK.DE","ADS.DE","AIR.DE",
-    "MC.PA","TTE.PA","SAN.PA","BNP.PA","AXA.PA","OR.PA",
-    "SU.PA","DG.PA","EL.PA","KER.PA","RMS.PA","STMPA.PA",
-    "NESN.SW","ROG.SW","NOVN.SW","ABB.SW","UBS.SW","ZURN.SW","CFR.SW",
-    "HSBA.L","BP.L","SHEL.L","AZN.L","GSK.L","ULVR.L","RIO.L",
-    "BARC.L","LLOY.L","NWG.L","BT-A.L","VOD.L","REL.L","EXPN.L",
-    "ITX.MC","SAN.MC","BBVA.MC","REP.MC","TEF.MC","IBE.MC",
-    "NOVO-B.CO","ORSTED.CO","DSV.CO","MAERSK-B.CO",
-    "EQNR.OL","DNB.OL","MOWI.OL","SCATEC.OL","SUBC.OL",
-    "ERIC-B.ST","SAND.ST","ATCO-A.ST","EVO.ST","SWED-A.ST","SHB-A.ST",
-    "KNEBV.HE","UPM.HE","NESTE.HE","FORTUM.HE","NOKIA.HE",
-    "KPN.AS","RAND.AS","NN.AS","AGN.AS","BESI.AS","IMCD.AS",
-    "AIR.PA","CAP.PA","VIE.PA","DSY.PA","SGO.PA","SW.PA","URW.PA",
-    "IFX.DE","FRE.DE","HAG.DE","MTX.DE","PUM.DE","ZAL.DE","1COV.DE",
-    "LOGN.SW","TEMN.SW","SOON.SW","SIKA.SW","GIVN.SW","BARN.SW",
-    "CRH.L","DGE.L","RB.L","WTB.L","SMT.L","3IN.L","ABF.L","IMB.L",
-    "CABK.MC","ENG.MC","MRL.MC","ACS.MC","FER.MC","NTGY.MC","GRF.MC",
-    # ── ITALIA ───────────────────────────────────────────────────
-    "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI",
-    "TIT.MI","MB.MI","BMED.MI","PRY.MI","REC.MI","PIRC.MI","BPER.MI",
-    "G.MI","SPM.MI","TEN.MI","ENIA.MI","ERG.MI","IREN.MI","A2A.MI",
-    "CNHI.MI","LDO.MI","MONC.MI","SFER.MI",
-    "AMZN.MI","AMP.MI","AZIMUT.MI","BANCA.MI","BAMI.MI","BPE.MI",
-    "BUZZI.MI","CPR.MI","DIA.MI","EXO.MI","FINECOBANK.MI","GIMA.MI",
-    "IVG.MI","JUVENTUS.MI","LAZIO.MI","MAIRE.MI","NEXI.MI","OVS.MI",
-    "POSTE.MI","PRYSMIAN.MI","RAVE.MI","RECORDATI.MI","REPLY.MI","SECO.MI",
-    # ── ASIA / LATAM / GLOBAL ────────────────────────────────────
-    "TSM","BABA","JD","PDD","BIDU","NIO","LI","XPEV",
-    "SONY","TM","HMC","MUFG","SMFG","MFG",
-    "INFY","WIT","HDB","IBN",
-    "VALE","PBR","ITUB",
-    "MELI","NU","GLOB","PAGS","STNE",
-    "SHOP","RY","TD","BNS","BMO","CM","ENB","CNQ","SU",
-    "BHP","RIO","GLNCY","SCCO","TECK",
-    "SE","GRAB","GOTO","BEKE","TIGR","IQ","QFIN","LU","NOAH","CNF",
-    "FUTU","TIGR","HTHT","TAL","EDU","NEW","LAIX","RLX","YUMC","SBSW",
-    "GOLD","BTG","SSYS","DDD","MTLS","XONE","NNDM","MARK","VJET","DM",
-    "SAM","HEINY","BUD","ABEV","DEO","STZ","BF-B","MGPI","WVVI","EAST",
-    "NMR","MUFG","KB","SHG","055550.KS","086790.KS",
-    # ── CRYPTO ───────────────────────────────────────────────────
+    "ARKK","SOXL","TQQQ","IBIT","GBTC",
+    "VIG","SCHD","DVY","VYM","NOBL","QUAL","MTUM",
+    "TIP","EMB","LQD","MBB","BNDX",
+
+    # ══════════════════════════════════════════════════════════════
+    #  USA — CRYPTO & FINTECH EMERGENTE
+    # ══════════════════════════════════════════════════════════════
     "BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","ADA-USD",
     "DOGE-USD","AVAX-USD","DOT-USD","LINK-USD","LTC-USD",
     "MATIC-USD","UNI-USD","ATOM-USD","FIL-USD","NEAR-USD",
-    "APT-USD","OP-USD","ARB-USD","SUI-USD","SEI-USD",
-    # ── COMMODITIES (ETF proxies) ────────────────────────────────
-    "DBC","PDBC","GSG","COMB","RJI","DJP",
-    "CORN","WEAT","SOYB","CANE","JO","NIB","BAL",
-    "PALL","PPLT","SLV","GLD","IAU","SGOL",
-    "DBB","CPER","JJC","JJT","JJN","LD",
-    "UNG","BOIL","KOLD","GAZ","FCG",
-    "USO","UCO","SCO","OIL","DBO","BNO",
-    # ── BONDS (ETF proxies) ──────────────────────────────────────
-    "TLT","IEF","SHY","GOVT","VGLT","VGIT","VGSH",
-    "AGG","BND","BNDX","VBMFX","FBND",
-    "HYG","JNK","FALN","ANGL","HYLS","USHY",
-    "LQD","VCIT","VCLT","VCSH","IGIB","IGSB",
-    "TIP","VTIP","STIP","PBTP","SCHP",
-    "EMB","VWOB","PCY","LEMB","EBND","EMHY",
-    "MBB","MUB","HYD","VTEB","PZA","CMF",
-]
-CURATED_TICKERS = list(dict.fromkeys(CURATED_TICKERS))  # deduplicate, preserve order
+    "MARA","RIOT","CLSK","CORZ","IREN","BTBT","HUT","CIFR",
 
+    # ══════════════════════════════════════════════════════════════
+    #  EUROPA — GERMANIA
+    # ══════════════════════════════════════════════════════════════
+    "SAP.DE","SIE.DE","BAYN.DE","BMW.DE","MBG.DE","ALV.DE","BAS.DE",
+    "VOW3.DE","DTE.DE","RWE.DE","HEN3.DE","DBK.DE","ADS.DE","AIR.DE",
+    "FRE.DE","HAG.DE","MTX.DE","PUM.DE","ZAL.DE","1COV.DE","IFX.DE",
+    "DHER.DE","QGEN.DE","EVK.DE","SHL.DE","PAH3.DE","MRK.DE","SRT3.DE",
+    "DWS.DE","LEG.DE","VNA.DE","WDI.DE","FNTN.DE","NDA.DE","ENR.DE",
+
+    # ══════════════════════════════════════════════════════════════
+    #  EUROPA — FRANCIA
+    # ══════════════════════════════════════════════════════════════
+    "MC.PA","TTE.PA","SAN.PA","BNP.PA","AXA.PA","OR.PA",
+    "SU.PA","DG.PA","EL.PA","KER.PA","RMS.PA","STMPA.PA",
+    "AIR.PA","CAP.PA","VIE.PA","DSY.PA","SGO.PA","SW.PA","URW.PA",
+    "BN.PA","EN.PA","ML.PA","SK.PA","LR.PA","CS.PA","ATO.PA",
+    "BOL.PA","RNO.PA","STM.PA","FP.PA","ERF.PA","ENGI.PA","ORA.PA",
+
+    # ══════════════════════════════════════════════════════════════
+    #  EUROPA — UK
+    # ══════════════════════════════════════════════════════════════
+    "HSBA.L","BP.L","SHEL.L","AZN.L","GSK.L","ULVR.L","RIO.L",
+    "BARC.L","LLOY.L","NWG.L","BT-A.L","VOD.L","REL.L","EXPN.L",
+    "CRH.L","DGE.L","IMB.L","ABF.L","WTB.L","SMT.L","3IN.L",
+    "LSEG.L","STAN.L","HLMA.L","RKT.L","MNDI.L","BATS.L","FERG.L",
+    "AUTO.L","OCDO.L","JET2.L","IAG.L","EZJ.L","RR.L","ROLLS.L",
+
+    # ══════════════════════════════════════════════════════════════
+    #  EUROPA — PAESI BASSI & SVIZZERA
+    # ══════════════════════════════════════════════════════════════
+    "ASML.AS","PHIA.AS","HEIA.AS","INGA.AS","UNA.AS","WKL.AS","ADYEN.AS",
+    "KPN.AS","RAND.AS","NN.AS","BESI.AS","IMCD.AS","AGN.AS","ASM.AS",
+    "NESN.SW","ROG.SW","NOVN.SW","ABB.SW","UBS.SW","ZURN.SW","CFR.SW",
+    "LOGN.SW","TEMN.SW","SIKA.SW","GIVN.SW","BARN.SW","SOON.SW","ALC.SW",
+    "CSGN.SW","SCMN.SW","PGHN.SW","STMN.SW","VACN.SW","KNIN.SW","LONN.SW",
+
+    # ══════════════════════════════════════════════════════════════
+    #  EUROPA — SPAGNA & ALTRI
+    # ══════════════════════════════════════════════════════════════
+    "ITX.MC","SAN.MC","BBVA.MC","REP.MC","TEF.MC","IBE.MC",
+    "CABK.MC","ENG.MC","ACS.MC","FER.MC","NTGY.MC","GRF.MC","AMS.MC",
+    "EQNR.OL","DNB.OL","MOWI.OL","YAR.OL","TGS.OL",
+    "ERIC-B.ST","SAND.ST","ATCO-A.ST","EVO.ST","SWED-A.ST","SHB-A.ST","SKF-B.ST",
+    "NOVO-B.CO","DSV.CO","MAERSK-B.CO","ORSTED.CO","CARL-B.CO",
+    "NOKIA.HE","NESTE.HE","FORTUM.HE","UPM.HE","KNEBV.HE",
+
+    # ══════════════════════════════════════════════════════════════
+    #  ITALIA
+    # ══════════════════════════════════════════════════════════════
+    "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI",
+    "TIT.MI","MB.MI","BMED.MI","PRY.MI","REC.MI","BPER.MI","G.MI",
+    "SPM.MI","TEN.MI","A2A.MI","CNHI.MI","LDO.MI","MONC.MI","NEXI.MI",
+    "POSTE.MI","ERG.MI","IREN.MI","RECORDATI.MI","REPLY.MI","MAIRE.MI",
+    "SFER.MI","PIRC.MI","FCA.MI","AZIMUT.MI","OVS.MI","FINECOBANK.MI",
+
+    # ══════════════════════════════════════════════════════════════
+    #  ASIA — GIAPPONE
+    # ══════════════════════════════════════════════════════════════
+    "SONY","TM","HMC","MUFG","SMFG","MFG","NTT","NTDOY","ITOCY","MSBHY",
+    "TOELY","FUJIY","HTHIY","FANUY","KYOCY","DSNKY","SSDOY","OTSKY","CCOEY","PCRFY",
+    "7203.T","6758.T","9984.T","6861.T","8306.T","8316.T","9432.T","6954.T","7267.T","4063.T",
+
+    # ══════════════════════════════════════════════════════════════
+    #  ASIA — CINA & HONG KONG
+    # ══════════════════════════════════════════════════════════════
+    "BABA","JD","PDD","BIDU","NIO","LI","XPEV","NTES","TME","IQ",
+    "FUTU","TIGR","HTHT","TAL","EDU","RLX","YUMC","SE","GRAB","LAIX",
+    "QFIN","LU","NOAH","CNF","CANG","MDJM","GCBC","UXIN","RETO","BTCM",
+
+    # ══════════════════════════════════════════════════════════════
+    #  ASIA — INDIA & ALTRI EMERGENTI
+    # ══════════════════════════════════════════════════════════════
+    "INFY","WIT","HDB","IBN","TTM","VEDL","MMYT","IRCTC","ZOMATO",
+    "TSM","2330.TW","2317.TW","2454.TW","3008.TW","2308.TW",
+    "KB","SHG","055550.KS","005380.KS","000660.KS","035420.KS",
+    "VALE","PBR","ITUB","BBDC4.SA","PETR4.SA","MGLU3.SA",
+    "MELI","NU","GLOB","PAGS","STNE","OINK","CASH3.SA",
+
+    # ══════════════════════════════════════════════════════════════
+    #  CANADA & AUSTRALIA
+    # ══════════════════════════════════════════════════════════════
+    "SHOP","RY","TD","BNS","BMO","CM","ENB","CNQ","SU","TRP",
+    "CP","CNR","WCN","CCO","AGI","KL","IMG","FM","TECK","LUN",
+    "BHP","RIO","FMG","WDS","WBC","CBA","ANZ","NAB","MQG","CSL",
+    "XRO","WOW","COL","ALL.AX","QAN.AX","REA.AX","SEK.AX","CAR.AX",
+
+]
+CURATED_TICKERS = list(dict.fromkeys(CURATED_TICKERS))  # deduplica, preserva ordine
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_universe() -> list[str]:
     tickers = set(CURATED_TICKERS)
