@@ -2212,5 +2212,3 @@ elif choice == "Economic Calendar":
                     f"<a href='{url}' target='_blank' style='color:#F5A623;font-family:IBM Plex Mono,monospace;"
                     f"font-size:0.77rem;text-decoration:none'>{nm} → {url}</a></div>",
                     unsafe_allow_html=True)
-ENDOFFILE
-echo "File written. Lines: $(wc -l < /mnt/user-data/outputs/navy_terminal_pro.py)"
