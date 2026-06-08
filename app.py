@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/navy_terminal_pro.py << 'ENDOFFILE'
 """
 ╔══════════════════════════════════════════════════════════════╗
 ║   NAVY TERMINAL PRO  v5.1  ·  Bloomberg-Grade Intelligence   ║
