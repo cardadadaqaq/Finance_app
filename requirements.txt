@@ -8,3 +8,4 @@ openbb
 streamlit-aggrid
 requests
 scipy
+finvizfinance
