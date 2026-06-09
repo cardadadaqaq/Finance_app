@@ -1,16 +1,17 @@
 """
-NAVY TERMINAL PRO  v6.0
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-data_engine.py  ·  UnifiedMarketDataEngine
-Hybrid router: SEC Edgar (US) → OpenBB (Non-US) → yfinance (fallback)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════════════════════════════════════╗
+║   NAVY TERMINAL PRO  v6.0  ·  Data Engine                        ║
+║   Unified Market Data · Finviz Screener · FRED · yFinance        ║
+╚══════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
 
-import json
 import warnings
-from typing import Optional, Tuple
+import time
+import concurrent.futures
+from datetime import datetime, timedelta
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -20,388 +21,610 @@ import yfinance as yf
 
 warnings.filterwarnings("ignore")
 
-# ─────────────────────────────────────────────────────────
-#  CONSTANTS
-# ─────────────────────────────────────────────────────────
-SEC_HEADERS = {
-    "User-Agent": "NavyTerminal/6.0 (research@navyterminal.com)",
-    "Accept-Encoding": "gzip, deflate",
-    "Host": "data.sec.gov",
+# ══════════════════════════════════════════════════════════
+#  FRED SERIES CATALOGUE
+# ══════════════════════════════════════════════════════════
+FRED_SERIES: dict[str, str] = {
+    "Fed Funds Rate":          "FEDFUNDS",
+    "10Y Treasury Yield":      "DGS10",
+    "2Y Treasury Yield":       "DGS2",
+    "3M Treasury Yield":       "DGS3MO",
+    "30Y Treasury Yield":      "DGS30",
+    "10Y-2Y Spread":           "T10Y2Y",
+    "CPI (All Urban)":         "CPIAUCSL",
+    "Core CPI":                "CPILFESL",
+    "PCE Price Index":         "PCEPI",
+    "Unemployment Rate":       "UNRATE",
+    "Non-Farm Payrolls":       "PAYEMS",
+    "Initial Claims":          "ICSA",
+    "Real GDP QoQ":            "A191RL1Q225SBEA",
+    "Industrial Production":   "INDPRO",
+    "Retail Sales":            "RSAFS",
+    "HY Spread":               "BAMLH0A0HYM2",
+    "IG Spread":               "BAMLC0A0CM",
+    "TED Spread":              "TEDRATE",
+    "VIX (FRED)":              "VIXCLS",
 }
-SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
-SEC_FACTS_URL   = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
-FRED_CSV_URL    = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
 
-NON_US_SUFFIXES = (
-    ".DE", ".AS", ".PA", ".MI", ".MC", ".L", ".SW", ".OL", ".ST",
-    ".CO", ".HE", ".BR", ".LI", ".VI", ".IS", ".WA", ".PR",
-    ".HK", ".T",  ".KS", ".AX", ".NZ", ".SA", ".MX", ".BO", ".NS", ".TW",
-)
+# ══════════════════════════════════════════════════════════
+#  SCREENER TICKER UNIVERSE  (~1,500 global names)
+# ══════════════════════════════════════════════════════════
+SCREENER_UNIVERSE_FULL: list[str] = list(dict.fromkeys([
+    # ── US Mega/Large Cap ─────────────────────────────────
+    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","AVGO","JPM",
+    "V","UNH","XOM","JNJ","PG","MA","HD","ABBV","MRK","CVX","PEP","KO","LIN",
+    "TMO","DHR","AMD","INTC","QCOM","TXN","AMAT","LRCX","MU","ORCL","IBM",
+    "CSCO","DELL","ACN","NOW","CRM","ADBE","PANW","FTNT","CRWD","ZS","SNPS",
+    "CDNS","INTU","NFLX","SPOT","UBER","ABNB","BKNG","SNOW","PLTR","COIN",
+    "ARM","SMCI","MRVL","KLAC","MPWR","DDOG","MDB","NET","HUBS","TTD","ROKU",
+    "BAC","WFC","GS","MS","BLK","SCHW","C","AXP","COF","BX","KKR","APO",
+    "LLY","PFE","BMY","AMGN","GILD","REGN","VRTX","BIIB","MRNA","NVAX",
+    "COST","WMT","TGT","DG","NKE","LULU","MCD","SBUX","CMG","DPZ","YUM",
+    "GE","HON","MMM","EMR","ETN","PH","ROK","BA","RTX","LMT","NOC","GD","CAT",
+    "DE","UPS","FDX","COP","EOG","OXY","SLB","HAL","BKR","LNG",
+    "NEE","CEG","DUK","SO","AEP","XEL","NRG","VST","TLN","SMR",
+    "AMT","PLD","EQIX","CCI","SPG","O","WELL","DLR","VICI","IRM",
+    "NEM","GOLD","FCX","ALB","SQM","DD","DOW","LYB","NUE","STLD","APD","SHW",
+    "DIS","CMCSA","WBD","EA","TTWO","DKNG","MGM","WYNN","LVS",
+    "ENPH","FSLR","RUN","SEDG","PLUG","BE","CHPT",
+    "ABNB","DASH","LYFT","GRAB","SE","MELI","NU",
+    # ── US Mid/Small Cap ─────────────────────────────────
+    "OKTA","BILL","DOCN","GTLB","MNDY","TOST","IOT","S","SAMSF",
+    "CELH","HIMS","ROIV","RXRX","ACMR","AXON","HOOD","SOFI","AFRM",
+    "RIVN","LCID","FSR","GOEV","NKLA","HYLN",
+    "VRT","NVENT","EMCOR","FWRD","MODG","JCI","CARR",
+    "OKE","KMI","WMB","EPD","ET","MMP","PAA",
+    "MTCH","BMBL","PINS","SNAP","RDDT","DUOL",
+    "ZM","DBX","BOX","TWLO","FROG","ESTC","SUMO",
+    "NFLX","ROKU","FUBO","SIRI",
+    "BLDR","PHM","DHI","LEN","TOL","MDC","CCS",
+    # ── European Large Cap ────────────────────────────────
+    "ASML.AS","ADYEN.AS","HEIA.AS","PHIA.AS","UNA.AS","NN.AS","IMCD.AS",
+    "SAP.DE","BAYN.DE","BMW.DE","MBG.DE","ALV.DE","SIE.DE","IFX.DE",
+    "DB1.DE","MUV2.DE","VOW3.DE","RWE.DE","EOAN.DE","BAS.DE","HEN3.DE",
+    "MC.PA","TTE.PA","SAN.PA","BNP.PA","AXA.PA","OR.PA","AIR.PA","SU.PA",
+    "RI.PA","DSY.PA","CAP.PA","SGO.PA","VIE.PA","STM.PA","DG.PA",
+    "HSBA.L","BP.L","SHEL.L","AZN.L","GSK.L","ULVR.L","RIO.L","BARC.L",
+    "LLOY.L","VOD.L","BT-A.L","CNA.L","EXPN.L","JD.L","PRU.L","STJ.L",
+    "NESN.SW","ROG.SW","NOVN.SW","ABB.SW","UBS.SW","CFR.SW","ZURN.SW","LONN.SW",
+    # ── Italian Stocks ────────────────────────────────────
+    "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI",
+    "G.MI","MB.MI","PRY.MI","TIT.MI","BMED.MI","FBK.MI","A2A.MI",
+    "TEN.MI","CPR.MI","PIRC.MI","SRG.MI","AZM.MI","BGN.MI",
+    # ── Spanish / Nordic / Other EU ──────────────────────
+    "ITX.MC","SAN.MC","BBVA.MC","REP.MC","TEF.MC","IBE.MC","ELE.MC",
+    "EQNR.OL","YAR.OL","DNO.OL","AKRBP.OL",
+    "NOVO-B.CO","DSV.CO","MAERSK-B.CO","NZYM-B.CO",
+    "ERIC-B.ST","VOLV-B.ST","ATCO-A.ST","SEB-A.ST","SHB-A.ST",
+    # ── Asian / Global ───────────────────────────────────
+    "SONY","TM","HMC","MUFG","SMFG","MFG","7203.T","6758.T","6861.T",
+    "TSM","2330.TW","005930.KS","000660.KS","BABA","JD","PDD","BIDU","NIO","LI","XPEV",
+    "INFY","WIT","HDB","ICICIBC.BO","RELIANCE.BO",
+    "SHOP","RY","TD","BNS","ENB","CNQ","SU","CP","CNR","MFC","SLF",
+    "BHP","RIO","CBA.AX","ANZ.AX","WBC.AX","NAB.AX","CSL.AX","FMG.AX",
+    # ── Crypto / ETFs ────────────────────────────────────
+    "BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","ADA-USD",
+    "GLD","SLV","GDX","GDXJ","IAU","PPLT",
+    "SPY","QQQ","IWM","DIA","VTI","VOO","VWCE.DE","IWDA.AS",
+    "TLT","AGG","LQD","HYG","BND","SHY","IEF",
+    "XLE","XLF","XLV","XLK","XLI","XLU","XLRE","XLB","XLP","XLY",
+    "EEM","EFA","VGK","FXI","MCHI","EWJ","EWG","EWU","EWP","EWI",
+    "DBA","DBC","USO","UNG","PDBC","CPER",
+    "ARKK","ARKG","ARKW","ARKF","ARKQ",
+]))
 
-# XBRL concept keys → human-readable label
-# Order matters: first match per label wins
-XBRL_CONCEPTS: list[tuple[str, str]] = [
-    ("us-gaap:Revenues",                                              "Revenue"),
-    ("us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",   "Revenue"),
-    ("us-gaap:SalesRevenueNet",                                       "Revenue"),
-    ("us-gaap:NetIncomeLoss",                                         "Net Income"),
-    ("us-gaap:OperatingIncomeLoss",                                   "Operating Income"),
-    ("us-gaap:GrossProfit",                                           "Gross Profit"),
-    ("us-gaap:CostOfRevenue",                                         "Cost of Revenue"),
-    ("us-gaap:ResearchAndDevelopmentExpense",                         "R&D Expense"),
-    ("us-gaap:SellingGeneralAndAdministrativeExpense",                "SG&A"),
-    ("us-gaap:InterestExpense",                                       "Interest Expense"),
-    ("us-gaap:IncomeTaxExpenseBenefit",                               "Income Tax"),
-    ("us-gaap:EarningsPerShareBasic",                                 "EPS Basic"),
-    ("us-gaap:EarningsPerShareDiluted",                               "EPS Diluted"),
-    ("us-gaap:Assets",                                                "Total Assets"),
-    ("us-gaap:Liabilities",                                           "Total Liabilities"),
-    ("us-gaap:StockholdersEquity",                                    "Stockholders Equity"),
-    ("us-gaap:CashAndCashEquivalentsAtCarryingValue",                 "Cash & Equivalents"),
-    ("us-gaap:LongTermDebt",                                          "Long-Term Debt"),
-    ("us-gaap:ShortTermBorrowings",                                   "Short-Term Debt"),
-    ("us-gaap:CommonStockSharesOutstanding",                          "Shares Outstanding"),
-    ("us-gaap:NetCashProvidedByUsedInOperatingActivities",            "Operating Cash Flow"),
-    ("us-gaap:PaymentsToAcquirePropertyPlantAndEquipment",            "CapEx"),
-    ("us-gaap:DepreciationDepletionAndAmortization",                  "D&A"),
-    ("us-gaap:DividendsCommonStock",                                  "Dividends Paid"),
-    ("us-gaap:RetainedEarningsAccumulatedDeficit",                    "Retained Earnings"),
+# ══════════════════════════════════════════════════════════
+#  FINVIZ COLUMN NORMALISER
+# ══════════════════════════════════════════════════════════
+_FINVIZ_RENAME: dict[str, str] = {
+    "No.":           "_row",
+    "Ticker":        "Ticker",
+    "Company":       "Name",
+    "Sector":        "Sector",
+    "Industry":      "Industry",
+    "Country":       "Country",
+    "Market Cap":    "MarketCap_raw",
+    "P/E":           "PE_raw",
+    "Price":         "Price_raw",
+    "Change":        "Change_raw",
+    "Volume":        "Volume_raw",
+}
+
+def _parse_finviz_market_cap(s: str) -> float:
+    """Convert Finviz market-cap strings like '2.31T', '450.12B', '12.5M' → float USD."""
+    if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
+        return float("nan")
+    s = s.strip()
+    multipliers = {"T": 1e12, "B": 1e9, "M": 1e6, "K": 1e3}
+    suffix = s[-1].upper()
+    try:
+        if suffix in multipliers:
+            return float(s[:-1]) * multipliers[suffix]
+        return float(s)
+    except ValueError:
+        return float("nan")
+
+
+def _parse_finviz_pct(s: str) -> float:
+    """Convert '3.52%', '-1.20%' → float."""
+    if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
+        return float("nan")
+    try:
+        return float(s.strip().replace("%", ""))
+    except ValueError:
+        return float("nan")
+
+
+def _parse_finviz_price(s: str) -> float:
+    if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
+        return float("nan")
+    try:
+        return float(s.strip().replace(",", ""))
+    except ValueError:
+        return float("nan")
+
+
+def _parse_finviz_pe(s: str) -> float:
+    if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
+        return float("nan")
+    try:
+        return float(s.strip())
+    except ValueError:
+        return float("nan")
+
+
+def _parse_finviz_volume(s) -> float:
+    if isinstance(s, (int, float)):
+        return float(s)
+    if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
+        return float("nan")
+    try:
+        return float(s.strip().replace(",", ""))
+    except ValueError:
+        return float("nan")
+
+
+# ══════════════════════════════════════════════════════════
+#  EMPTY SCREENER SCHEMA  (used on catastrophic failure)
+# ══════════════════════════════════════════════════════════
+_SCREENER_EMPTY_COLS = [
+    "Ticker", "Name", "Sector", "Industry", "Country",
+    "MarketCap_B", "PE", "Price", "Change_Pct", "Volume",
+    "Source",
 ]
 
-FRED_SERIES: dict[str, str] = {
-    "10Y Treasury":          "DGS10",
-    "2Y Treasury":           "DGS2",
-    "3M Treasury":           "DGS3MO",
-    "5Y Treasury":           "DGS5",
-    "30Y Treasury":          "DGS30",
-    "Fed Funds Rate":        "FEDFUNDS",
-    "CPI YoY":               "CPIAUCSL",
-    "Core CPI":              "CPILFESL",
-    "PCE Inflation":         "PCEPI",
-    "Unemployment":          "UNRATE",
-    "GDP QoQ":               "A191RL1Q225SBEA",
-    "Industrial Production": "INDPRO",
-    "Retail Sales":          "RSAFS",
-    "Consumer Sentiment":    "UMCSENT",
-    "M2 Money Supply":       "M2SL",
-    "HY Spread":             "BAMLH0A0HYM2",
-    "IG Spread":             "BAMLC0A0CM",
-    "TED Spread":            "TEDRATE",
-    "10Y-2Y Spread":         "T10Y2Y",
-    "10Y-3M Spread":         "T10Y3M",
-    "VIX (FRED)":            "VIXCLS",
-}
+def _empty_screener_df() -> pd.DataFrame:
+    return pd.DataFrame(columns=_SCREENER_EMPTY_COLS)
 
 
-# ─────────────────────────────────────────────────────────
-#  SEC EDGAR LAYER
-# ─────────────────────────────────────────────────────────
-@st.cache_data(ttl=86_400, show_spinner=False)
-def _load_sec_cik_map() -> dict[str, str]:
-    """Download and cache the full SEC ticker→CIK mapping (refreshes once per day)."""
+# ══════════════════════════════════════════════════════════
+#  PRIMARY ENGINE: FINVIZ SCRAPER
+# ══════════════════════════════════════════════════════════
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_finviz_screener_data() -> pd.DataFrame:
+    """
+    Pull the full Finviz screener table via finvizfinance.
+    Returns a clean, normalised DataFrame with typed numeric columns.
+    Caches for 10 minutes.  On ANY failure returns _empty_screener_df().
+    """
     try:
-        resp = requests.get(
-            SEC_TICKERS_URL,
-            headers={"User-Agent": "NavyTerminal/6.0 (research@navyterminal.com)"},
-            timeout=15,
+        from finvizfinance.screener.overview import Overview  # lazy import
+
+        foverview = Overview()
+        raw: pd.DataFrame = foverview.screener_view()
+
+        if raw is None or raw.empty:
+            return _empty_screener_df()
+
+        # ── Rename columns we care about ──────────────────
+        rename_map: dict[str, str] = {}
+        for col in raw.columns:
+            if col in _FINVIZ_RENAME:
+                rename_map[col] = _FINVIZ_RENAME[col]
+        raw = raw.rename(columns=rename_map)
+
+        # ── Guarantee required columns exist ──────────────
+        required = ["Ticker", "Name", "Sector", "Industry", "Country",
+                    "MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]
+        for col in required:
+            if col not in raw.columns:
+                raw[col] = None
+
+        # ── Parse numeric columns ─────────────────────────
+        raw["MarketCap_B"]  = raw["MarketCap_raw"].apply(_parse_finviz_market_cap) / 1e9
+        raw["PE"]           = raw["PE_raw"].apply(_parse_finviz_pe)
+        raw["Price"]        = raw["Price_raw"].apply(_parse_finviz_price)
+        raw["Change_Pct"]   = raw["Change_raw"].apply(_parse_finviz_pct)
+        raw["Volume"]       = raw["Volume_raw"].apply(_parse_finviz_volume)
+
+        # ── Fill string columns ───────────────────────────
+        for col in ["Ticker", "Name", "Sector", "Industry", "Country"]:
+            raw[col] = raw[col].fillna("N/A").astype(str)
+
+        raw["Source"] = "Finviz"
+
+        # ── Return only the clean columns ─────────────────
+        out = raw[_SCREENER_EMPTY_COLS].copy()
+        out = out[out["Ticker"].str.strip().ne("") & out["Ticker"].ne("N/A")]
+        out = out.reset_index(drop=True)
+        return out
+
+    except Exception:
+        return _empty_screener_df()
+
+
+# ══════════════════════════════════════════════════════════
+#  BACKUP ENGINE: MULTI-THREADED BATCH YFINANCE
+# ══════════════════════════════════════════════════════════
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_backup_yfinance_screener(
+    universe: tuple[str, ...] | None = None,
+    chunk_size: int = 100,
+) -> pd.DataFrame:
+    """
+    Batch-download price data for the curated universe using yf.download()
+    with multi-threading.  Price, Change%, Volume are computed vectorially.
+    Metadata (Sector, Industry, Country, MarketCap, PE) is fetched in parallel
+    via a ThreadPoolExecutor — one yf.Ticker.info call per stock, capped to
+    avoid hammering Yahoo.  On any failure returns _empty_screener_df().
+    """
+    if universe is None:
+        # Strip crypto/ETF-heavy prefixes that have no PE/sector metadata
+        universe = tuple(SCREENER_UNIVERSE_FULL)
+
+    try:
+        # ── 1. Batch price download (vectorised) ──────────
+        tickers_str = " ".join(universe)
+        raw_px = yf.download(
+            tickers=tickers_str,
+            period="5d",
+            interval="1d",
+            threads=True,
+            progress=False,
+            auto_adjust=True,
         )
-        resp.raise_for_status()
-        raw: dict = resp.json()
-        mapping: dict[str, str] = {}
-        for entry in raw.values():
-            ticker = str(entry.get("ticker", "")).upper().strip()
-            cik    = str(entry.get("cik_str", "")).strip().zfill(10)
-            if ticker and cik:
-                mapping[ticker] = cik
-        return mapping
+
+        if raw_px.empty:
+            return _empty_screener_df()
+
+        # Handle both MultiIndex and flat Index (single ticker edge case)
+        if isinstance(raw_px.columns, pd.MultiIndex):
+            close_df  = raw_px["Close"]   if "Close"  in raw_px.columns.get_level_values(0) else pd.DataFrame()
+            volume_df = raw_px["Volume"]  if "Volume" in raw_px.columns.get_level_values(0) else pd.DataFrame()
+        else:
+            # Single-ticker flat case — wrap into DataFrame with ticker as column
+            single = list(universe)[0]
+            close_df  = raw_px[["Close"]].rename(columns={"Close": single})
+            volume_df = raw_px[["Volume"]].rename(columns={"Volume": single})
+
+        if close_df.empty:
+            return _empty_screener_df()
+
+        close_df  = close_df.dropna(how="all").ffill()
+        volume_df = volume_df.dropna(how="all").ffill()
+
+        if len(close_df) < 2:
+            return _empty_screener_df()
+
+        last_close  = close_df.iloc[-1]
+        prev_close  = close_df.iloc[-2]
+        last_volume = volume_df.iloc[-1] if not volume_df.empty else pd.Series(dtype=float)
+
+        change_pct = ((last_close - prev_close) / prev_close.replace(0, float("nan"))) * 100
+
+        # ── 2. Parallel metadata fetch ────────────────────
+        valid_tickers = [t for t in last_close.index if pd.notna(last_close[t])]
+
+        def _fetch_meta(tkr: str) -> dict:
+            """Fetch a single ticker's metadata; return empty dict on failure."""
+            try:
+                info = yf.Ticker(tkr).info
+                if not info:
+                    return {"Ticker": tkr}
+                return {
+                    "Ticker":     tkr,
+                    "Name":       (info.get("longName") or info.get("shortName") or tkr)[:40],
+                    "Sector":     info.get("sector",   "N/A"),
+                    "Industry":   info.get("industry", "N/A"),
+                    "Country":    info.get("country",  "N/A"),
+                    "MarketCap_B": (info.get("marketCap") or 0) / 1e9,
+                    "PE":          info.get("forwardPE") or info.get("trailingPE") or float("nan"),
+                }
+            except Exception:
+                return {"Ticker": tkr}
+
+        meta_rows: list[dict] = []
+        # Use at most 40 workers; don't flood Yahoo Finance
+        with concurrent.futures.ThreadPoolExecutor(max_workers=40) as pool:
+            futures = {pool.submit(_fetch_meta, t): t for t in valid_tickers}
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    meta_rows.append(fut.result(timeout=8))
+                except Exception:
+                    meta_rows.append({"Ticker": futures[fut]})
+
+        meta_df = pd.DataFrame(meta_rows)
+        if meta_df.empty or "Ticker" not in meta_df.columns:
+            meta_df = pd.DataFrame({"Ticker": valid_tickers})
+
+        # ── 3. Assemble final DataFrame ───────────────────
+        price_records = []
+        for tkr in valid_tickers:
+            price_records.append({
+                "Ticker":     tkr,
+                "Price":      round(float(last_close[tkr]), 4) if pd.notna(last_close[tkr]) else float("nan"),
+                "Change_Pct": round(float(change_pct[tkr]), 2)  if pd.notna(change_pct.get(tkr, float("nan"))) else float("nan"),
+                "Volume":     float(last_volume[tkr]) if tkr in last_volume.index and pd.notna(last_volume[tkr]) else float("nan"),
+            })
+
+        price_df = pd.DataFrame(price_records)
+
+        # Merge price + meta
+        merged = price_df.merge(meta_df, on="Ticker", how="left")
+
+        # Fill missing string columns
+        for col in ["Name", "Sector", "Industry", "Country"]:
+            if col not in merged.columns:
+                merged[col] = "N/A"
+            merged[col] = merged[col].fillna("N/A").astype(str)
+
+        for col in ["MarketCap_B", "PE"]:
+            if col not in merged.columns:
+                merged[col] = float("nan")
+
+        merged["Source"] = "yFinance"
+
+        out = merged[_SCREENER_EMPTY_COLS].copy().reset_index(drop=True)
+        return out
+
+    except Exception:
+        return _empty_screener_df()
+
+
+# ══════════════════════════════════════════════════════════
+#  UNIFIED SCREENER ENTRY POINT
+# ══════════════════════════════════════════════════════════
+def load_screener_master_data(
+    force_fallback: bool = False,
+) -> tuple[pd.DataFrame, str]:
+    """
+    Attempt Finviz first; fall back to yFinance batch on any failure.
+    Returns (DataFrame, source_label).
+    """
+    if not force_fallback:
+        df = fetch_finviz_screener_data()
+        if not df.empty:
+            return df, "Finviz"
+
+    df = fetch_backup_yfinance_screener(universe=tuple(SCREENER_UNIVERSE_FULL))
+    if not df.empty:
+        return df, "yFinance Batch"
+
+    return _empty_screener_df(), "None (Network Error)"
+
+
+# ══════════════════════════════════════════════════════════
+#  SCREENER FILTER ENGINE  (pure pandas — no web requests)
+# ══════════════════════════════════════════════════════════
+def apply_screener_filters(
+    df: pd.DataFrame,
+    sector: str = "All",
+    country: str = "All",
+    min_marketcap_b: float = 0.0,
+    max_marketcap_b: float = 100_000.0,
+    max_pe: float = 500.0,
+    min_pe: float = 0.0,
+    min_change_pct: float = -100.0,
+    max_change_pct: float = 100.0,
+    keyword: str = "",
+) -> pd.DataFrame:
+    """Apply all screener filter criteria to the master DataFrame locally."""
+    out = df.copy()
+
+    if sector != "All":
+        out = out[out["Sector"].str.strip() == sector]
+
+    if country != "All":
+        out = out[out["Country"].str.strip() == country]
+
+    mc = pd.to_numeric(out["MarketCap_B"], errors="coerce")
+    out = out[(mc >= min_marketcap_b) | mc.isna()]
+    out = out[(mc <= max_marketcap_b) | mc.isna()]
+
+    pe = pd.to_numeric(out["PE"], errors="coerce")
+    if max_pe < 500:
+        out = out[(pe <= max_pe) | pe.isna()]
+    if min_pe > 0:
+        out = out[pe >= min_pe]
+
+    chg = pd.to_numeric(out["Change_Pct"], errors="coerce")
+    out = out[(chg >= min_change_pct) | chg.isna()]
+    out = out[(chg <= max_change_pct) | chg.isna()]
+
+    if keyword.strip():
+        kw = keyword.strip().lower()
+        mask = (
+            out["Name"].str.lower().str.contains(kw, na=False) |
+            out["Sector"].str.lower().str.contains(kw, na=False) |
+            out["Industry"].str.lower().str.contains(kw, na=False) |
+            out["Ticker"].str.lower().str.contains(kw, na=False)
+        )
+        out = out[mask]
+
+    return out.reset_index(drop=True)
+
+
+# ══════════════════════════════════════════════════════════
+#  UNIFIED MARKET DATA ENGINE  (unchanged from v5)
+# ══════════════════════════════════════════════════════════
+class UnifiedMarketDataEngine:
+    """
+    Attempts SEC EDGAR / OpenBB first, then yFinance as fallback.
+    For v6 the open-source yFinance path is the primary live path.
+    """
+
+    def __init__(self, ticker: str):
+        self.ticker      = ticker.strip().upper()
+        self.data_source = "yFinance"
+        self._info_cache: dict | None = None
+
+    def info(self) -> dict:
+        if self._info_cache is not None:
+            return self._info_cache
+        try:
+            obj  = yf.Ticker(self.ticker)
+            info = obj.info
+            if info and len(info) > 5:
+                self._info_cache = info
+                return info
+        except Exception:
+            pass
+        self._info_cache = {}
+        return {}
+
+    def deep_financials(self) -> dict[str, pd.Series]:
+        """
+        Returns a dict of metric_name → annual time-series (pd.Series).
+        Falls back gracefully to empty dict.
+        """
+        results: dict[str, pd.Series] = {}
+        try:
+            t     = yf.Ticker(self.ticker)
+            inc_a = t.income_stmt
+            bal_a = t.balance_sheet
+            cf_a  = t.cashflow
+
+            def _row(df: pd.DataFrame, *keys: str) -> pd.Series:
+                for k in keys:
+                    for idx in df.index:
+                        if k.lower() in str(idx).lower():
+                            row = df.loc[idx].dropna()
+                            if not row.empty:
+                                return row.sort_index()
+                return pd.Series(dtype=float)
+
+            if inc_a is not None and not inc_a.empty:
+                results["Revenue"]      = _row(inc_a, "Total Revenue", "Revenue")
+                results["Gross Profit"] = _row(inc_a, "Gross Profit")
+                results["Operating Income"] = _row(inc_a, "Operating Income", "EBIT")
+                results["Net Income"]   = _row(inc_a, "Net Income")
+                results["EBITDA"]       = _row(inc_a, "EBITDA", "Normalized EBITDA")
+
+            if cf_a is not None and not cf_a.empty:
+                results["Operating CF"] = _row(cf_a, "Operating Cash Flow", "Total Cash From Operating")
+                results["Capex"]        = _row(cf_a, "Capital Expenditure", "Capex")
+                fcf_op  = results.get("Operating CF", pd.Series(dtype=float))
+                fcf_cap = results.get("Capex", pd.Series(dtype=float))
+                if not fcf_op.empty and not fcf_cap.empty:
+                    aligned = fcf_op.align(fcf_cap, join="inner")
+                    results["Free Cash Flow"] = aligned[0] - aligned[1].abs()
+
+            if bal_a is not None and not bal_a.empty:
+                results["Total Assets"]  = _row(bal_a, "Total Assets")
+                results["Total Debt"]    = _row(bal_a, "Total Debt", "Long Term Debt")
+                results["Total Equity"]  = _row(bal_a, "Stockholders Equity", "Total Equity")
+                results["Cash"]          = _row(bal_a, "Cash And Cash Equivalents", "Cash")
+
+            results = {k: v for k, v in results.items() if isinstance(v, pd.Series) and not v.empty}
+
+        except Exception:
+            pass
+
+        return results
+
+
+# ══════════════════════════════════════════════════════════
+#  INDIVIDUAL YF HELPER FUNCTIONS  (unchanged API surface)
+# ══════════════════════════════════════════════════════════
+@st.cache_data(ttl=300, show_spinner=False)
+def yf_info(ticker: str) -> dict:
+    try:
+        obj  = yf.Ticker(ticker)
+        info = obj.info
+        return info if info and len(info) > 5 else {}
     except Exception:
         return {}
 
 
-def _resolve_cik(ticker: str) -> Optional[str]:
-    mapping = _load_sec_cik_map()
-    return mapping.get(ticker.upper().strip())
-
-
-@st.cache_data(ttl=3_600, show_spinner=False)
-def _fetch_sec_facts(cik: str) -> dict:
-    """Fetch raw XBRL company facts JSON from SEC Edgar for a padded CIK."""
-    url = SEC_FACTS_URL.format(cik=cik)
+@st.cache_data(ttl=300, show_spinner=False)
+def yf_close(ticker: str, period: str = "1y", start: str | None = None) -> pd.Series:
     try:
-        resp = requests.get(url, headers=SEC_HEADERS, timeout=20)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception:
-        return {}
-
-
-def _extract_xbrl_concept(facts: dict, concept_key: str) -> pd.Series:
-    """
-    Parse one XBRL concept from SEC company facts JSON.
-    Returns pd.Series(date → float) for annual 10-K filings only.
-    """
-    try:
-        taxonomy, tag = concept_key.split(":", 1)
-        units = (
-            facts.get("facts", {})
-                 .get(taxonomy, {})
-                 .get(tag, {})
-                 .get("units", {})
-        )
-        values_list = (
-            units.get("USD")
-            or units.get("shares")
-            or units.get("pure")
-            or []
-        )
-        records: list[dict] = []
-        for entry in values_list:
-            if entry.get("form") in ("10-K", "20-F") and entry.get("end") and entry.get("val") is not None:
-                records.append({
-                    "date":  pd.to_datetime(entry["end"]),
-                    "value": float(entry["val"]),
-                })
-        if not records:
+        if start:
+            df = yf.download(ticker, start=start, progress=False, auto_adjust=True)
+        else:
+            df = yf.download(ticker, period=period, progress=False, auto_adjust=True)
+        if df.empty:
             return pd.Series(dtype=float)
-        df = pd.DataFrame(records).drop_duplicates("date").sort_values("date")
-        return df.set_index("date")["value"]
+        if isinstance(df.columns, pd.MultiIndex):
+            close = df["Close"].squeeze()
+        else:
+            close = df["Close"] if "Close" in df.columns else df.iloc[:, 0]
+        return close.dropna()
     except Exception:
         return pd.Series(dtype=float)
 
 
-def build_sec_financials(ticker: str) -> dict[str, pd.Series]:
-    """
-    Pull and parse multi-decade SEC XBRL financials for a US ticker.
-    Returns {human_label: pd.Series(date → float)}.
-    Derives FCF = OCF − CapEx and EBITDA = OpIncome + D&A automatically.
-    """
-    cik = _resolve_cik(ticker)
-    if not cik:
-        return {}
-    facts = _fetch_sec_facts(cik)
-    if not facts:
-        return {}
-
-    result: dict[str, pd.Series] = {}
-    seen_labels: set[str] = set()
-
-    for concept_key, label in XBRL_CONCEPTS:
-        if label in seen_labels:
-            continue
-        series = _extract_xbrl_concept(facts, concept_key)
-        if not series.empty:
-            result[label]  = series
-            seen_labels.add(label)
-
-    # Derived: Free Cash Flow
-    if "Operating Cash Flow" in result and "CapEx" in result:
-        aligned = pd.concat(
-            [result["Operating Cash Flow"], result["CapEx"]], axis=1, keys=["ocf", "cap"]
-        ).dropna()
-        if not aligned.empty:
-            result["Free Cash Flow"] = aligned["ocf"] - aligned["cap"]
-
-    # Derived: EBITDA
-    if "Operating Income" in result and "D&A" in result:
-        aligned2 = pd.concat(
-            [result["Operating Income"], result["D&A"]], axis=1, keys=["oi", "da"]
-        ).dropna()
-        if not aligned2.empty:
-            result["EBITDA"] = aligned2["oi"] + aligned2["da"]
-
-    return result
-
-
-# ─────────────────────────────────────────────────────────
-#  OPENBB LAYER
-# ─────────────────────────────────────────────────────────
-def _openbb_available() -> bool:
-    try:
-        import importlib
-        return importlib.util.find_spec("openbb") is not None
-    except Exception:
-        return False
-
-
-@st.cache_data(ttl=3_600, show_spinner=False)
-def _fetch_openbb_financials(ticker: str) -> dict[str, pd.DataFrame]:
-    """Pull annual income / balance / cashflow statements via OpenBB SDK."""
-    try:
-        from openbb import obb  # type: ignore
-        out: dict[str, pd.DataFrame] = {}
-        for sheet, method in [
-            ("income",   lambda: obb.equity.fundamental.income(ticker,  period="annual", limit=20)),
-            ("balance",  lambda: obb.equity.fundamental.balance(ticker, period="annual", limit=20)),
-            ("cashflow", lambda: obb.equity.fundamental.cash(ticker,    period="annual", limit=20)),
-        ]:
-            try:
-                res = method()
-                out[sheet] = res.to_df() if hasattr(res, "to_df") else pd.DataFrame()
-            except Exception:
-                out[sheet] = pd.DataFrame()
-        return out
-    except Exception:
-        return {}
-
-
-_OBB_INCOME_MAP = {
-    "revenue": "Revenue",
-    "gross_profit": "Gross Profit",
-    "operating_income": "Operating Income",
-    "net_income": "Net Income",
-    "ebitda": "EBITDA",
-    "research_and_development": "R&D Expense",
-    "selling_general_and_admin": "SG&A",
-    "interest_expense": "Interest Expense",
-    "income_tax_expense": "Income Tax",
-    "eps_diluted": "EPS Diluted",
-    "eps_basic": "EPS Basic",
-}
-_OBB_BALANCE_MAP = {
-    "total_assets": "Total Assets",
-    "total_liabilities": "Total Liabilities",
-    "stockholders_equity": "Stockholders Equity",
-    "cash_and_equivalents": "Cash & Equivalents",
-    "long_term_debt": "Long-Term Debt",
-    "short_term_debt": "Short-Term Debt",
-    "retained_earnings": "Retained Earnings",
-    "shares_outstanding": "Shares Outstanding",
-}
-_OBB_CASHFLOW_MAP = {
-    "operating_cash_flow": "Operating Cash Flow",
-    "capital_expenditures": "CapEx",
-    "free_cash_flow": "Free Cash Flow",
-    "dividends_paid": "Dividends Paid",
-    "depreciation_and_amortization": "D&A",
-}
-
-
-def _normalize_openbb(raw: dict[str, pd.DataFrame]) -> dict[str, pd.Series]:
-    """Flatten OpenBB DataFrames → {label: pd.Series(date → float)}."""
-    sheet_maps = {
-        "income":   _OBB_INCOME_MAP,
-        "balance":  _OBB_BALANCE_MAP,
-        "cashflow": _OBB_CASHFLOW_MAP,
-    }
-    result: dict[str, pd.Series] = {}
-    for sheet_key, col_map in sheet_maps.items():
-        df = raw.get(sheet_key, pd.DataFrame())
-        if df is None or df.empty:
-            continue
-        try:
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index, errors="coerce")
-            df = df[~df.index.isna()].sort_index()
-        except Exception:
-            continue
-        for col_name, human_label in col_map.items():
-            if human_label in result:
-                continue
-            matched = None
-            if col_name in df.columns:
-                matched = col_name
-            else:
-                needle = col_name.lower().replace("_", "")
-                for dc in df.columns:
-                    if needle in str(dc).lower().replace("_", ""):
-                        matched = dc
-                        break
-            if matched is not None:
-                s = pd.to_numeric(df[matched], errors="coerce").dropna()
-                if not s.empty:
-                    result[human_label] = s
-    return result
-
-
-# ─────────────────────────────────────────────────────────
-#  YFINANCE HELPERS  (price / quote / fallback fundamentals)
-# ─────────────────────────────────────────────────────────
-@st.cache_data(ttl=180, show_spinner=False)
-def yf_info(ticker: str) -> dict:
-    try:
-        info = yf.Ticker(ticker).info
-        if not info or len(info) < 4:
-            return {}
-        if not any(info.get(k) for k in ["regularMarketPrice", "currentPrice", "previousClose", "longName"]):
-            return {}
-        return info
-    except Exception:
-        return {}
-
-
-@st.cache_data(ttl=180, show_spinner=False)
-def yf_close(ticker: str, start: Optional[str] = None, period: Optional[str] = None) -> pd.Series:
-    try:
-        t   = yf.Ticker(ticker)
-        raw = t.history(period=period) if period else t.history(start=start)
-        if raw.empty:
-            return pd.Series(dtype=float, name=ticker)
-        s = raw["Close"].squeeze()
-        if hasattr(s.index, "tz") and s.index.tz:
-            s.index = s.index.tz_localize(None)
-        return s.rename(ticker)
-    except Exception:
-        return pd.Series(dtype=float, name=ticker)
-
-
-@st.cache_data(ttl=90, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def yf_ohlcv(ticker: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
     try:
-        df = yf.Ticker(ticker).history(period=period, interval=interval)
-        if hasattr(df.index, "tz") and df.index.tz:
-            df.index = df.index.tz_localize(None)
-        return df
+        df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
+        if df.empty:
+            return pd.DataFrame()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        return df.dropna(how="all")
     except Exception:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=90, show_spinner=False)
-def yf_price_chg(ticker: str) -> Tuple[Optional[float], Optional[float]]:
+@st.cache_data(ttl=300, show_spinner=False)
+def yf_price_chg(ticker: str) -> tuple[float | None, float | None]:
     try:
-        d = yf.Ticker(ticker).history(period="2d")
-        if len(d) >= 2:
-            c, p = float(d["Close"].iloc[-1]), float(d["Close"].iloc[-2])
-            return c, (c - p) / p * 100
-        elif len(d) == 1:
-            return float(d["Close"].iloc[-1]), None
-        return None, None
+        info = yf_info(ticker)
+        price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
+        prev  = info.get("previousClose") or price
+        if price and prev and prev != 0:
+            return float(price), float((price - prev) / prev * 100)
+        return float(price) if price else None, None
     except Exception:
         return None, None
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def yf_financials(ticker: str) -> dict:
+def yf_financials(ticker: str) -> dict[str, pd.DataFrame]:
     try:
         t = yf.Ticker(ticker)
         return {
-            "income_a":   getattr(t, "income_stmt",              pd.DataFrame()),
-            "income_q":   getattr(t, "quarterly_income_stmt",    pd.DataFrame()),
-            "balance_a":  getattr(t, "balance_sheet",            pd.DataFrame()),
-            "balance_q":  getattr(t, "quarterly_balance_sheet",  pd.DataFrame()),
-            "cashflow_a": getattr(t, "cashflow",                 pd.DataFrame()),
-            "cashflow_q": getattr(t, "quarterly_cashflow",       pd.DataFrame()),
+            "income_a":   t.income_stmt         if t.income_stmt   is not None else pd.DataFrame(),
+            "balance_a":  t.balance_sheet        if t.balance_sheet is not None else pd.DataFrame(),
+            "cashflow_a": t.cashflow             if t.cashflow      is not None else pd.DataFrame(),
+            "income_q":   t.quarterly_income_stmt if t.quarterly_income_stmt is not None else pd.DataFrame(),
+            "balance_q":  t.quarterly_balance_sheet if t.quarterly_balance_sheet is not None else pd.DataFrame(),
+            "cashflow_q": t.quarterly_cashflow   if t.quarterly_cashflow is not None else pd.DataFrame(),
         }
     except Exception:
         return {}
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def yf_options(ticker: str):
+def yf_options(ticker: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     try:
         t    = yf.Ticker(ticker)
-        exps = t.options
+        exps = list(t.options) if t.options else []
         if not exps:
-            return None, None, []
-        ch   = t.option_chain(exps[0])
-        return ch.calls, ch.puts, list(exps[:12])
+            return pd.DataFrame(), pd.DataFrame(), []
+        ch = t.option_chain(exps[0])
+        return ch.calls, ch.puts, exps
     except Exception:
-        return None, None, []
+        return pd.DataFrame(), pd.DataFrame(), []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def yf_holders(ticker: str) -> pd.DataFrame:
     try:
-        return yf.Ticker(ticker).institutional_holders or pd.DataFrame()
+        t = yf.Ticker(ticker)
+        ih = t.institutional_holders
+        return ih if ih is not None and not ih.empty else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
@@ -409,186 +632,46 @@ def yf_holders(ticker: str) -> pd.DataFrame:
 @st.cache_data(ttl=300, show_spinner=False)
 def yf_recommendations(ticker: str) -> pd.DataFrame:
     try:
-        return yf.Ticker(ticker).recommendations or pd.DataFrame()
+        t = yf.Ticker(ticker)
+        rec = t.recommendations
+        return rec if rec is not None and not rec.empty else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def yf_earnings_dates(ticker: str) -> pd.DataFrame:
     try:
-        return yf.Ticker(ticker).earnings_dates or pd.DataFrame()
+        t  = yf.Ticker(ticker)
+        ed = t.earnings_dates
+        return ed if ed is not None and not ed.empty else pd.DataFrame()
     except Exception:
         return pd.DataFrame()
 
 
-def _normalize_yfinance(raw: dict) -> dict[str, pd.Series]:
-    """Flatten yfinance annual statement DataFrames → {label: pd.Series(date → float)}."""
-    sheet_row_maps = {
-        "income_a": {
-            "Total Revenue":                         "Revenue",
-            "Gross Profit":                          "Gross Profit",
-            "Operating Income":                      "Operating Income",
-            "Net Income":                            "Net Income",
-            "EBITDA":                                "EBITDA",
-            "Research And Development":              "R&D Expense",
-            "Selling General And Administration":    "SG&A",
-            "Interest Expense":                      "Interest Expense",
-            "Tax Provision":                         "Income Tax",
-            "Basic EPS":                             "EPS Basic",
-            "Diluted EPS":                           "EPS Diluted",
-        },
-        "balance_a": {
-            "Total Assets":                          "Total Assets",
-            "Total Liabilities Net Minority Interest": "Total Liabilities",
-            "Stockholders Equity":                   "Stockholders Equity",
-            "Cash And Cash Equivalents":             "Cash & Equivalents",
-            "Long Term Debt":                        "Long-Term Debt",
-            "Current Debt":                          "Short-Term Debt",
-            "Retained Earnings":                     "Retained Earnings",
-            "Ordinary Shares Number":                "Shares Outstanding",
-        },
-        "cashflow_a": {
-            "Operating Cash Flow":                   "Operating Cash Flow",
-            "Capital Expenditure":                   "CapEx",
-            "Free Cash Flow":                        "Free Cash Flow",
-            "Cash Dividends Paid":                   "Dividends Paid",
-            "Depreciation And Amortization":         "D&A",
-        },
-    }
-    result: dict[str, pd.Series] = {}
-    for sheet_key, row_map in sheet_row_maps.items():
-        df = raw.get(sheet_key, pd.DataFrame())
-        if df is None or df.empty:
-            continue
-        try:
-            date_index = pd.to_datetime(df.columns, errors="coerce")
-            df.columns = date_index
-            df = df.loc[:, ~df.columns.isna()]
-        except Exception:
-            continue
-        for row_label, human_label in row_map.items():
-            if human_label in result:
-                continue
-            matched = None
-            if row_label in df.index:
-                matched = row_label
-            else:
-                needle = str(row_label).lower().replace(" ", "")
-                for idx_lbl in df.index:
-                    if needle in str(idx_lbl).lower().replace(" ", ""):
-                        matched = idx_lbl
-                        break
-            if matched is not None:
-                s = pd.to_numeric(df.loc[matched], errors="coerce").dropna().sort_index()
-                if not s.empty:
-                    result[human_label] = s
-    return result
+# ══════════════════════════════════════════════════════════
+#  FRED DATA ENGINE
+# ══════════════════════════════════════════════════════════
+_FRED_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
-
-# ─────────────────────────────────────────────────────────
-#  UNIFIED MARKET DATA ENGINE  (main router)
-# ─────────────────────────────────────────────────────────
-class UnifiedMarketDataEngine:
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_fred(series_id: str, start: str | None = None) -> pd.Series:
     """
-    Single public interface for all fundamental + price data.
-
-    Routing logic:
-      US ticker  → SEC Edgar primary → OpenBB secondary → yfinance tertiary
-      Non-US     → OpenBB primary → yfinance tertiary
-      Crypto/FX  → yfinance only
+    Download a FRED series directly via CSV endpoint (no API key required).
+    Returns a pd.Series indexed by date.  Returns empty Series on failure.
     """
-
-    def __init__(self, ticker: str) -> None:
-        self.ticker    = ticker.upper().strip()
-        self.is_us     = not any(self.ticker.endswith(sfx) for sfx in NON_US_SUFFIXES)
-        self.is_crypto = "-USD" in self.ticker or "-EUR" in self.ticker
-        self._info: Optional[dict]              = None
-        self._deep_fin: Optional[dict]          = None
-        self._data_source: str                  = "yfinance"
-
-    # ── Quote / price data (always yfinance) ───────────────
-    def info(self) -> dict:
-        if self._info is None:
-            self._info = yf_info(self.ticker)
-        return self._info
-
-    def price_change(self) -> Tuple[Optional[float], Optional[float]]:
-        return yf_price_chg(self.ticker)
-
-    def close_series(self, period: str = "1y") -> pd.Series:
-        return yf_close(self.ticker, period=period)
-
-    def ohlcv(self, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
-        return yf_ohlcv(self.ticker, period=period, interval=interval)
-
-    # ── Deep fundamentals (routed) ─────────────────────────
-    def deep_financials(self) -> dict[str, pd.Series]:
-        """
-        Returns {label: pd.Series(date → float)} with multi-decade annual data.
-        Tries sources in priority order; sets self._data_source for provenance display.
-        """
-        if self._deep_fin is not None:
-            return self._deep_fin
-
-        if self.is_crypto:
-            self._deep_fin = {}
-            return {}
-
-        # ── Path 1: SEC Edgar (US only) ────────────────────
-        if self.is_us:
-            try:
-                sec_data = build_sec_financials(self.ticker)
-                if sec_data:
-                    self._deep_fin  = sec_data
-                    self._data_source = "SEC Edgar"
-                    return self._deep_fin
-            except Exception:
-                pass
-
-        # ── Path 2: OpenBB ─────────────────────────────────
-        if _openbb_available():
-            try:
-                obb_raw  = _fetch_openbb_financials(self.ticker)
-                obb_data = _normalize_openbb(obb_raw)
-                if obb_data:
-                    self._deep_fin  = obb_data
-                    self._data_source = "OpenBB"
-                    return self._deep_fin
-            except Exception:
-                pass
-
-        # ── Path 3: yfinance fallback ──────────────────────
-        try:
-            yf_raw  = yf_financials(self.ticker)
-            yf_data = _normalize_yfinance(yf_raw)
-            self._deep_fin  = yf_data
-            self._data_source = "yFinance"
-            return self._deep_fin
-        except Exception:
-            self._deep_fin = {}
-            return {}
-
-    @property
-    def data_source(self) -> str:
-        return self._data_source
-
-
-# ─────────────────────────────────────────────────────────
-#  FRED MACRO DATA
-# ─────────────────────────────────────────────────────────
-@st.cache_data(ttl=3_600, show_spinner=False)
-def fetch_fred(series_id: str, start: str = "1995-01-01") -> pd.Series:
-    """Fetch a FRED time-series via public CSV endpoint (no API key required)."""
     try:
+        params: dict[str, str] = {"id": series_id}
+        if start:
+            params["vintage_date"] = start
+        r = requests.get(_FRED_BASE, params=params, timeout=15)
+        r.raise_for_status()
         from io import StringIO
-        url  = FRED_CSV_URL.format(series_id=series_id)
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        df = pd.read_csv(StringIO(resp.text), parse_dates=["DATE"], index_col="DATE")
-        df.index = pd.to_datetime(df.index, errors="coerce")
-        df = df[~df.index.isna()].sort_index()
-        s  = pd.to_numeric(df.iloc[:, 0], errors="coerce").dropna()
-        return s[s.index >= start]
+        df = pd.read_csv(StringIO(r.text), index_col=0, parse_dates=True)
+        df.columns = ["value"]
+        s = pd.to_numeric(df["value"], errors="coerce").dropna()
+        if start:
+            s = s[s.index >= pd.to_datetime(start)]
+        return s
     except Exception:
-        return pd.Series(dtype=float, name=series_id)
+        return pd.Series(dtype=float)
