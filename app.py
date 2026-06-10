@@ -1,7 +1,8 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║   NAVY TERMINAL PRO  v6.0  ·  Institutional Intelligence Engine  ║
+║   NAVY TERMINAL PRO  v6.1  ·  Institutional Intelligence Engine  ║
 ║   SEC Edgar · OpenBB · FRED · CAPM/DCF · Monte Carlo             ║
+║   PERF BUILD: session_state cache · lazy tabs · client-side grid ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
@@ -49,29 +50,266 @@ from ui_components import (
 #  APP CONFIG
 # ══════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="NAVY TERMINAL PRO v6.0",
+    page_title="NAVY TERMINAL PRO v6.1",
     layout="wide",
     initial_sidebar_state="expanded",
     page_icon="⚓",
 )
-st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════
-#  SESSION STATE
+#  BLACK-BASE THEME OVERRIDE
+#  Replaces all navy (#0D2137, #071220, #091827, #06111F etc.)
+#  with true black / near-black tones.
+# ══════════════════════════════════════════════════════════
+BLACK_THEME_CSS = """
+<style>
+/* ── Root overrides ─────────────────────────── */
+:root {
+  --bg-base:        #000000;
+  --bg-card:        #0a0a0a;
+  --bg-panel:       #111111;
+  --bg-hover:       #1a1a1a;
+  --border-dim:     #222222;
+  --border-active:  #F5A623;
+  --text-primary:   #E8EDF2;
+  --text-secondary: #8A9BB0;
+  --text-muted:     #3A4A5C;
+  --accent:         #F5A623;
+  --accent-blue:    #3B8EF0;
+  --green:          #2ECC71;
+  --red:            #E74C3C;
+}
+
+/* Streamlit root */
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
+.main .block-container {
+  background-color: #000000 !important;
+}
+[data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+  background-color: #080808 !important;
+  border-right: 1px solid #1a1a1a !important;
+}
+
+/* Cards and panels from ui_components */
+.ticker-card, .term-box, .mover-card {
+  background: #0a0a0a !important;
+  border-color: #1e1e1e !important;
+}
+.sec-hdr { color: var(--text-secondary) !important; }
+
+/* Navigation items */
+.nav-title { color: #F5A623 !important; }
+.nav-sub   { color: #3A4A5C !important; }
+.nav-divider { background: #1a1a1a !important; }
+
+/* Buttons */
+[data-testid="stButton"] button {
+  background: #0a0a0a !important;
+  border: 1px solid #1e1e1e !important;
+  color: #8A9BB0 !important;
+  transition: border-color 0.15s, color 0.15s;
+}
+[data-testid="stButton"] button:hover {
+  border-color: #F5A623 !important;
+  color: #F5A623 !important;
+}
+
+/* Active nav item */
+[data-testid="stButton"] button[kind="primary"] {
+  background: #0F0F0F !important;
+  border-left: 2px solid #F5A623 !important;
+  color: #F5A623 !important;
+}
+
+/* Inputs, selects, sliders */
+[data-testid="stTextInput"] input,
+[data-testid="stSelectbox"] > div,
+[data-testid="stMultiSelect"] > div,
+[data-testid="stNumberInput"] input {
+  background: #0a0a0a !important;
+  border-color: #1e1e1e !important;
+  color: #E8EDF2 !important;
+}
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div {
+  background: #0a0a0a !important;
+  border-color: #222222 !important;
+}
+
+/* Metric widgets */
+[data-testid="stMetric"] {
+  background: #0a0a0a !important;
+  border: 1px solid #1a1a1a !important;
+  border-radius: 4px;
+  padding: 6px 10px !important;
+}
+[data-testid="stMetricLabel"] { color: #5A7A9A !important; }
+[data-testid="stMetricValue"] { color: #E8EDF2 !important; }
+
+/* Tabs */
+[data-testid="stTabs"] [role="tablist"] {
+  background: #080808 !important;
+  border-bottom: 1px solid #1a1a1a !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+  color: #5A7A9A !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+  color: #F5A623 !important;
+  border-bottom: 2px solid #F5A623 !important;
+  background: transparent !important;
+}
+
+/* AgGrid dark */
+.ag-root-wrapper, .ag-header, .ag-body-viewport {
+  background-color: #080808 !important;
+  color: #C8D8EC !important;
+}
+.ag-header-cell { background: #0a0a0a !important; color: #5A7A9A !important; }
+.ag-row { background: #080808 !important; }
+.ag-row:hover { background: #111111 !important; }
+.ag-row-odd { background: #050505 !important; }
+
+/* Plotly chart backgrounds → black */
+.js-plotly-plot .plotly .bg { fill: #000000 !important; }
+
+/* Source badge */
+.src-badge {
+  background: #111111;
+  border: 1px solid #222222;
+  color: #5A7A9A;
+  font-size: 0.55rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: 0.08em;
+}
+
+/* Screener stats bar */
+.screener-stats-bar {
+  background: #080808;
+  border: 1px solid #1a1a1a;
+  border-radius: 4px;
+  padding: 6px 14px;
+  display: flex;
+  gap: 1.6rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.62rem;
+  color: #5A7A9A;
+  margin-bottom: 0.5rem;
+}
+
+/* Expanders */
+[data-testid="stExpander"] {
+  background: #080808 !important;
+  border: 1px solid #1a1a1a !important;
+}
+
+/* Info / warning boxes */
+[data-testid="stAlert"] {
+  background: #0a0a0a !important;
+  border-color: #1e1e1e !important;
+}
+
+/* Horizontal divider */
+hr { border-color: #1a1a1a !important; }
+
+/* Progress bars */
+[data-testid="stProgress"] > div > div {
+  background: #F5A623 !important;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #F5A623; }
+</style>
+"""
+
+st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+st.markdown(BLACK_THEME_CSS, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════
+#  PLOTLY BLACK LAYOUT HELPER
+#  Wraps pla() to always inject black backgrounds and
+#  disable heavy animations.
+# ══════════════════════════════════════════════════════════
+def _pla(overrides: dict = None) -> dict:
+    """Black-themed plotly layout with animations disabled."""
+    base = pla(overrides or {})
+    base.update(
+        paper_bgcolor="#000000",
+        plot_bgcolor="#000000",
+        transition={"duration": 0},
+        # Strip uirevision to avoid stale re-renders
+        uirevision=None,
+    )
+    # Patch axis gridlines to pure black
+    for ax_key in ("xaxis", "yaxis", "xaxis2", "yaxis2"):
+        if ax_key in base:
+            base[ax_key].setdefault("gridcolor", "#111111")
+            base[ax_key].setdefault("zerolinecolor", "#1a1a1a")
+        else:
+            base[ax_key] = {"gridcolor": "#111111", "zerolinecolor": "#1a1a1a"}
+    return base
+
+
+def _subsample(series: pd.Series, max_points: int = 2000) -> pd.Series:
+    """Down-sample a price series to at most max_points for Plotly perf."""
+    if len(series) <= max_points:
+        return series
+    step = math.ceil(len(series) / max_points)
+    return series.iloc[::step]
+
+
+def _subsample_df(df: pd.DataFrame, max_points: int = 2000) -> pd.DataFrame:
+    if len(df) <= max_points:
+        return df
+    step = math.ceil(len(df) / max_points)
+    return df.iloc[::step]
+
+
+# ══════════════════════════════════════════════════════════
+#  SESSION STATE INITIALISATION
+#  All data blobs live here. UI elements NEVER trigger a
+#  fresh API call — only explicit Refresh buttons or ticker
+#  changes do.
 # ══════════════════════════════════════════════════════════
 _DEFAULTS = dict(
     page                   = "Market Overview",
+    # Screener
     screener_df            = None,
     screener_source        = None,
     screener_selected      = None,
+    # Terminal
     terminal_ticker        = "NVDA",
     terminal_peers         = "AMD,INTC,AVGO,QCOM,SMCI",
+    terminal_data_cache    = {},   # {ticker: {info, deep_fin, ...}}
+    # Watchlist
     watchlist              = ["AAPL","NVDA","ASML.AS","ENI.MI","MC.PA","RACE.MI","MSFT","AMZN"],
+    watchlist_data         = {},   # {ticker: info_dict}
+    watchlist_last_refresh = None,
+    # Market overview
+    market_data            = None,
+    market_last_refresh    = None,
+    # Charts
+    chart_ohlcv_cache      = {},   # {(ticker,period,interval): df}
+    # DCF
+    dcf_result_cache       = {},   # keyed by hash of inputs
+    # Backtest
+    backtest_result        = None,
+    backtest_key           = None,
+    # Macro/FRED
+    fred_cache             = {},   # {series_id: Series}
+    # Alerts
     alerts                 = [],
 )
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
 
 # ══════════════════════════════════════════════════════════
 #  REFERENCE DATA
@@ -114,7 +352,7 @@ with st.sidebar:
     st.markdown("""
     <div style='padding:1.2rem 0 0.8rem 0'>
       <div class='nav-title'>⚓ NAVY</div>
-      <div class='nav-sub'>TERMINAL PRO · v6.0</div>
+      <div class='nav-sub'>TERMINAL PRO · v6.1</div>
       <div class='nav-divider'></div>
     </div>""", unsafe_allow_html=True)
 
@@ -134,7 +372,7 @@ with st.sidebar:
     ]
     for code, label in MENU:
         active = st.session_state.page == label
-        style  = "background:#0F2A47!important;border-left:2px solid #F5A623;" if active else ""
+        style  = "background:#0A0A0A!important;border-left:2px solid #F5A623;" if active else ""
         st.markdown(f"<style>#nav_{code} button{{{style}}}</style>", unsafe_allow_html=True)
         st.markdown(f"<span id='nav_{code}'></span>", unsafe_allow_html=True)
         if st.button(f"{'▶' if active else '·'}  {code}  {label}", key=f"nav_{code}", use_container_width=True):
@@ -143,10 +381,10 @@ with st.sidebar:
 
     st.markdown("""
     <div style='margin-top:2rem;padding:0 0.5rem'>
-      <div style='height:1px;background:linear-gradient(90deg,transparent,#0D2137,transparent);margin-bottom:0.7rem'></div>
-      <div style='font-family:IBM Plex Mono,monospace;font-size:0.46rem;color:#1A3A5C;text-align:center;letter-spacing:0.14em;line-height:2'>
+      <div style='height:1px;background:linear-gradient(90deg,transparent,#1a1a1a,transparent);margin-bottom:0.7rem'></div>
+      <div style='font-family:IBM Plex Mono,monospace;font-size:0.46rem;color:#1A1A1A;text-align:center;letter-spacing:0.14em;line-height:2'>
         FINVIZ · FRED · YFINANCE · AGGRID<br>
-        NAVY TERMINAL PRO v6.0 · ⚓
+        NAVY TERMINAL PRO v6.1 · ⚓
       </div>
     </div>""", unsafe_allow_html=True)
 
@@ -160,12 +398,47 @@ def _source_badge(s: str) -> str:
     return f"<span class='src-badge'>{s}</span>"
 
 
-# ══════════════════════════════════════════════════════════
-#  COMPANY TERMINAL  (reused by Screener + Watchlist)
-# ══════════════════════════════════════════════════════════
-def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
+def _get_terminal_data(ticker: str, force: bool = False) -> dict:
+    """
+    Cache engine.info() + deep_financials() in session_state.
+    Only re-fetches if ticker is new or force=True.
+    Returns dict with keys: info, engine.
+    """
+    cache = st.session_state.terminal_data_cache
+    if not force and ticker in cache:
+        return cache[ticker]
     engine = UnifiedMarketDataEngine(ticker)
     inf    = engine.info()
+    cache[ticker] = {"info": inf, "engine": engine}
+    st.session_state.terminal_data_cache = cache
+    return cache[ticker]
+
+
+def _get_ohlcv(ticker: str, period: str, interval: str) -> pd.DataFrame:
+    """Cache OHLCV per (ticker, period, interval) in session_state."""
+    key = (ticker, period, interval)
+    cache = st.session_state.chart_ohlcv_cache
+    if key not in cache:
+        cache[key] = yf_ohlcv(ticker, period=period, interval=interval)
+        st.session_state.chart_ohlcv_cache = cache
+    return cache[key]
+
+
+def _get_close(ticker: str, period: str = "1y", start: str = None) -> pd.Series:
+    """
+    Lightweight wrapper — yf_close is already @st.cache_data decorated
+    in data_engine.py so this is a no-op cache layer for clarity.
+    """
+    return yf_close(ticker, period=period, start=start)
+
+
+# ══════════════════════════════════════════════════════════
+#  COMPANY TERMINAL
+# ══════════════════════════════════════════════════════════
+def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM", force_refresh: bool = False) -> None:
+    cached = _get_terminal_data(ticker, force=force_refresh)
+    engine = cached["engine"]
+    inf    = cached["info"]
 
     if not inf:
         st.error(f"❌ No data for **{ticker}**. Examples: `AAPL` `NVDA` `ENI.MI` `ASML.AS` `BTC-USD`")
@@ -236,13 +509,20 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
     for i, (lb, v) in enumerate(kpis2):
         c8b[i].metric(lb, v)
 
+    # Refresh button — only this triggers a new API call
+    if st.button("🔄 Refresh Data", key=f"term_refresh_{ticker}"):
+        # Evict from cache
+        st.session_state.terminal_data_cache.pop(ticker, None)
+        st.rerun()
+
     st.markdown("---")
 
-    t1,t2,t3,t4,t5,t6,t7 = st.tabs([
-        "📋 Overview","📊 Financials (Deep)","📈 Performance",
-        "👥 Peers","🏦 Holders","📰 News & Rec","⛓️ Supply Chain",
+    t1, t2, t3, t4, t5, t6, t7 = st.tabs([
+        "📋 Overview", "📊 Financials (Deep)", "📈 Performance",
+        "👥 Peers", "🏦 Holders", "📰 News & Rec", "⛓️ Supply Chain",
     ])
 
+    # ── Tab 1: Overview ────────────────────────────────────
     with t1:
         c1, c2 = st.columns([3, 2])
         with c1:
@@ -270,11 +550,24 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
             g1.metric("Rev/Share",   str(inf.get("revenuePerShare", "N/A")))
             g2.metric("Book/Share",  f"{inf.get('bookValue','N/A')}")
 
+    # ── Tab 2: Deep Financials — LAZY ──────────────────────
     with t2:
         src_label = engine.data_source
         sec(f"DEEP FINANCIALS  {_source_badge(src_label)}")
-        with st.spinner(f"Fetching multi-decade data via {src_label}…"):
-            deep = engine.deep_financials()
+        # Lazy: only fetch when this tab's button is clicked or
+        # data not yet in session_state for this ticker.
+        deep_key = f"deep_{ticker}"
+        if deep_key not in st.session_state:
+            if st.button("⬇ Load Deep Financials", key=f"load_deep_{ticker}"):
+                with st.spinner(f"Fetching multi-decade data via {src_label}…"):
+                    st.session_state[deep_key] = engine.deep_financials()
+                st.rerun()
+            else:
+                st.info("Click **Load Deep Financials** to fetch income, balance, and cash flow data.")
+                deep = None
+        else:
+            deep = st.session_state[deep_key]
+
         if deep:
             fin_labels = list(deep.keys())
             sel_metrics = st.multiselect(
@@ -292,7 +585,7 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                             line=dict(width=2, color=COLORS[idx % len(COLORS)]),
                             marker=dict(size=5),
                         ))
-                fig_fin.update_layout(**pla({
+                fig_fin.update_layout(**_pla({
                     "height": 360, "title": f"{ticker} — {src_label} Multi-Decade Financials",
                     "xaxis": xaxis_time(), "yaxis": yaxis_plain("$ Value"),
                 }))
@@ -308,7 +601,8 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                 rows_t.append(row)
             if rows_t:
                 navy_grid(pd.DataFrame(rows_t).set_index("Metric"), height=400, key=f"df_{ticker}")
-        else:
+        elif deep is not None:
+            # Fallback yfinance path
             yf_fin = yf_financials(ticker)
             if yf_fin:
                 mode_f = st.radio("Period:", ["Annual","Quarterly"], horizontal=True, key=f"fm_{ticker}")
@@ -327,24 +621,26 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
             else:
                 interrupted("No financial data returned from any source.")
 
+    # ── Tab 3: Performance ─────────────────────────────────
     with t3:
         p_map = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y","2Y":"2y","5Y":"5y","10Y":"10y","MAX":"max"}
         p_lbl = st.select_slider("Period:", list(p_map.keys()), value="1Y", key=f"pp_{ticker}")
-        s_d   = yf_close(ticker, period=p_map[p_lbl])
+        s_d   = _get_close(ticker, period=p_map[p_lbl])
         if not s_d.empty:
-            ret = ((s_d / s_d.iloc[0]) - 1) * 100
+            s_d_plot = _subsample(s_d)
+            ret = ((s_d_plot / s_d_plot.iloc[0]) - 1) * 100
             fig_p = go.Figure()
             fig_p.add_trace(go.Scatter(
                 x=ret.index, y=ret, name=ticker,
                 line=dict(width=2.5, color="#F5A623"),
                 fill="tozeroy", fillcolor="rgba(245,166,35,0.06)",
             ))
-            fig_p.add_hline(y=0, line_dash="dot", line_color="#1E4976")
-            fig_p.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":340}))
+            fig_p.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
+            fig_p.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":340}))
             st.plotly_chart(fig_p, use_container_width=True)
             dr  = s_d.pct_change().dropna()
             ay  = max((s_d.index[-1] - s_d.index[0]).days / 365.25, 0.1)
-            tr  = float(ret.iloc[-1])
+            tr  = float(((s_d.iloc[-1] / s_d.iloc[0]) - 1) * 100)
             car = ((1 + tr / 100) ** (1 / ay) - 1) * 100
             vol = dr.std() * np.sqrt(252) * 100
             dd  = ((s_d / s_d.cummax()) - 1).min() * 100
@@ -357,57 +653,79 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         else:
             interrupted(f"No price history for {ticker}")
 
+    # ── Tab 4: Peers ───────────────────────────────────────
     with t4:
         pk = f"peers_{ticker}"
         if pk not in st.session_state:
             st.session_state[pk] = peers_str
         p_in = st.text_input("Peers (comma separated)", value=st.session_state[pk], key=f"pi_{ticker}")
         st.session_state[pk] = p_in
-        p_list = [ticker] + [x.strip().upper() for x in p_in.split(",") if x.strip()]
-        rows_p: list[dict] = []
-        prg = st.progress(0)
-        for ix, p in enumerate(p_list):
-            prg.progress((ix + 1) / len(p_list))
-            pi = yf_info(p)
-            if not pi:
-                rows_p.append({"Ticker":p, **{k:"ERR" for k in ["Price","P/E","P/B","P/S","EV/EBITDA","Beta","Cap$B","Div%","ROE%","OpMgn%","Rev$B","FCF$B"]}})
-                continue
-            pr = pi.get("currentPrice") or pi.get("regularMarketPrice") or pi.get("previousClose") or 0
-            rows_p.append({
-                "Ticker":    p,
-                "Price":     f"{pr:,.2f}"                                             if pr                                         else "N/A",
-                "P/E":       f"{pi.get('forwardPE'):.1f}"                            if pi.get("forwardPE")                        else "N/A",
-                "P/B":       f"{pi.get('priceToBook'):.2f}"                          if pi.get("priceToBook")                      else "N/A",
-                "P/S":       f"{pi.get('priceToSalesTrailing12Months'):.2f}"         if pi.get("priceToSalesTrailing12Months")      else "N/A",
-                "EV/EBITDA": f"{pi.get('enterpriseToEbitda'):.1f}"                   if pi.get("enterpriseToEbitda")               else "N/A",
-                "Beta":      f"{pi.get('beta'):.2f}"                                 if pi.get("beta")                             else "N/A",
-                "Cap$B":     f"{pi.get('marketCap',0)/1e9:.1f}"                      if pi.get("marketCap")                        else "N/A",
-                "Div%":      f"{(pi.get('dividendYield') or 0)*100:.2f}%",
-                "ROE%":      f"{pi.get('returnOnEquity',0)*100:.1f}"                 if pi.get("returnOnEquity")                   else "N/A",
-                "OpMgn%":    f"{pi.get('operatingMargins',0)*100:.1f}"               if pi.get("operatingMargins")                 else "N/A",
-                "Rev$B":     f"{pi.get('totalRevenue',0)/1e9:.1f}"                   if pi.get("totalRevenue")                     else "N/A",
-                "FCF$B":     f"{pi.get('freeCashflow',0)/1e9:.1f}"                   if pi.get("freeCashflow")                     else "N/A",
-            })
-        prg.empty()
+
+        # Cache peer table in session_state; only rebuild when peer list changes
+        peer_cache_key = f"peer_table_{ticker}_{p_in}"
+        if peer_cache_key not in st.session_state:
+            p_list = [ticker] + [x.strip().upper() for x in p_in.split(",") if x.strip()]
+            rows_p: list[dict] = []
+            prg = st.progress(0)
+            for ix, p in enumerate(p_list):
+                prg.progress((ix + 1) / len(p_list))
+                pi = yf_info(p)
+                if not pi:
+                    rows_p.append({"Ticker":p, **{k:"ERR" for k in ["Price","P/E","P/B","P/S","EV/EBITDA","Beta","Cap$B","Div%","ROE%","OpMgn%","Rev$B","FCF$B"]}})
+                    continue
+                pr = pi.get("currentPrice") or pi.get("regularMarketPrice") or pi.get("previousClose") or 0
+                rows_p.append({
+                    "Ticker":    p,
+                    "Price":     f"{pr:,.2f}"                                             if pr                                         else "N/A",
+                    "P/E":       f"{pi.get('forwardPE'):.1f}"                            if pi.get("forwardPE")                        else "N/A",
+                    "P/B":       f"{pi.get('priceToBook'):.2f}"                          if pi.get("priceToBook")                      else "N/A",
+                    "P/S":       f"{pi.get('priceToSalesTrailing12Months'):.2f}"         if pi.get("priceToSalesTrailing12Months")      else "N/A",
+                    "EV/EBITDA": f"{pi.get('enterpriseToEbitda'):.1f}"                   if pi.get("enterpriseToEbitda")               else "N/A",
+                    "Beta":      f"{pi.get('beta'):.2f}"                                 if pi.get("beta")                             else "N/A",
+                    "Cap$B":     f"{pi.get('marketCap',0)/1e9:.1f}"                      if pi.get("marketCap")                        else "N/A",
+                    "Div%":      f"{(pi.get('dividendYield') or 0)*100:.2f}%",
+                    "ROE%":      f"{pi.get('returnOnEquity',0)*100:.1f}"                 if pi.get("returnOnEquity")                   else "N/A",
+                    "OpMgn%":    f"{pi.get('operatingMargins',0)*100:.1f}"               if pi.get("operatingMargins")                 else "N/A",
+                    "Rev$B":     f"{pi.get('totalRevenue',0)/1e9:.1f}"                   if pi.get("totalRevenue")                     else "N/A",
+                    "FCF$B":     f"{pi.get('freeCashflow',0)/1e9:.1f}"                   if pi.get("freeCashflow")                     else "N/A",
+                })
+            prg.empty()
+            st.session_state[peer_cache_key] = (p_list, rows_p)
+
+        p_list, rows_p = st.session_state[peer_cache_key]
         if rows_p:
             navy_grid(pd.DataFrame(rows_p).set_index("Ticker"), height=300, key=f"ptbl_{ticker}")
+
         sec("RELATIVE PERFORMANCE 1Y")
-        fr = {p: s for p in p_list for s in [yf_close(p, period="1y")] if not s.empty}
-        if fr:
-            pn = pd.DataFrame(fr).dropna(how="all").ffill()
-            pn = ((pn / pn.iloc[0]) - 1) * 100
+        perf_cache_key = f"peer_perf_{ticker}_{p_in}"
+        if perf_cache_key not in st.session_state:
+            fr = {p: s for p in p_list for s in [_get_close(p, period="1y")] if not s.empty}
+            if fr:
+                pn = pd.DataFrame(fr).dropna(how="all").ffill()
+                pn = ((pn / pn.iloc[0]) - 1) * 100
+                st.session_state[perf_cache_key] = pn
+            else:
+                st.session_state[perf_cache_key] = pd.DataFrame()
+
+        pn = st.session_state[perf_cache_key]
+        if not pn.empty:
             fig_pr = go.Figure()
             for ix, col in enumerate(pn.columns):
+                pn_sub = _subsample(pn[col])
                 fig_pr.add_trace(go.Scatter(
-                    x=pn.index, y=pn[col], name=col,
+                    x=pn_sub.index, y=pn_sub,name=col,
                     line=dict(width=2.8 if col == ticker else 1.5, color=COLORS[ix % len(COLORS)]),
                 ))
-            fig_pr.add_hline(y=0, line_dash="dot", line_color="#1E4976")
-            fig_pr.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":320}))
+            fig_pr.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
+            fig_pr.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":320}))
             st.plotly_chart(fig_pr, use_container_width=True)
 
+    # ── Tab 5: Holders ─────────────────────────────────────
     with t5:
-        ih = yf_holders(ticker)
+        holders_key = f"holders_{ticker}"
+        if holders_key not in st.session_state:
+            st.session_state[holders_key] = yf_holders(ticker)
+        ih = st.session_state[holders_key]
         if not ih.empty:
             sec("TOP INSTITUTIONAL HOLDERS")
             navy_grid(ih.head(15), height=320, key=f"ih_{ticker}")
@@ -418,6 +736,7 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         oi3.metric("Insider Held", f"{inf.get('heldPercentInsiders',0)*100:.1f}%"                         if inf.get("heldPercentInsiders")     else "N/A")
         oi4.metric("Short Float",  f"{inf.get('shortPercentOfFloat',0)*100:.1f}%"                         if inf.get("shortPercentOfFloat")     else "N/A")
 
+    # ── Tab 6: News & Rec ──────────────────────────────────
     with t6:
         cn, cr = st.columns([3, 2])
         with cn:
@@ -433,7 +752,7 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                         try:    dt_str = datetime.fromtimestamp(pub).strftime("%d %b %H:%M") if pub else ""
                         except: dt_str = ""
                         st.markdown(
-                            f"<div style='border-left:2px solid #1E4976;padding-left:8px;margin-bottom:8px;font-size:0.77rem'>"
+                            f"<div style='border-left:2px solid #1e1e1e;padding-left:8px;margin-bottom:8px;font-size:0.77rem'>"
                             f"<a href='{link}' target='_blank' style='color:#C8D8EC;text-decoration:none'>{title[:95]}</a>"
                             f"<div style='font-size:0.60rem;color:#5A88B0;margin-top:2px'>{dt_str}</div></div>",
                             unsafe_allow_html=True)
@@ -441,7 +760,10 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                 interrupted("News feed unavailable.")
         with cr:
             sec("ANALYST RECOMMENDATIONS")
-            recs = yf_recommendations(ticker)
+            recs_key = f"recs_{ticker}"
+            if recs_key not in st.session_state:
+                st.session_state[recs_key] = yf_recommendations(ticker)
+            recs = st.session_state[recs_key]
             if not recs.empty:
                 try:
                     avail_cols = [c for c in ["Firm","To Grade","Action"] if c in recs.columns]
@@ -457,6 +779,7 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                     st.metric("Target", f"${inf['targetMeanPrice']:.2f}")
                     st.metric("Upside",f"{(inf['targetMeanPrice']/price-1)*100:.1f}%")
 
+    # ── Tab 7: Supply Chain ────────────────────────────────
     with t7:
         sc = SC_MAP.get(sector)
         if sc:
@@ -488,71 +811,102 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
 if choice == "Market Overview":
     ptitle("GLOBAL MARKET OVERVIEW","Real-time snapshot · Indices · Rates · FX · Commodities · Movers")
 
-    INDICES = {
-        "S&P 500":"^GSPC","Nasdaq 100":"^IXIC","Dow Jones":"^DJI","Russell 2000":"^RUT",
-        "VIX":"^VIX","Nikkei 225":"^N225","FTSE MIB":"FTSEMIB.MI","DAX 40":"^GDAXI",
-        "CAC 40":"^FCHI","STOXX 50":"^STOXX50E","Hang Seng":"^HSI","MSCI EM":"EEM",
-    }
+    # Manual refresh only — snapshot data persists in session_state
+    col_ref, col_ts = st.columns([1, 5])
+    with col_ref:
+        refresh_mkt = st.button("🔄 Refresh", key="mkt_refresh")
+    with col_ts:
+        if st.session_state.market_last_refresh:
+            st.caption(f"Last refresh: {st.session_state.market_last_refresh.strftime('%H:%M:%S')}")
+
+    if st.session_state.market_data is None or refresh_mkt:
+        INDICES = {
+            "S&P 500":"^GSPC","Nasdaq 100":"^IXIC","Dow Jones":"^DJI","Russell 2000":"^RUT",
+            "VIX":"^VIX","Nikkei 225":"^N225","FTSE MIB":"FTSEMIB.MI","DAX 40":"^GDAXI",
+            "CAC 40":"^FCHI","STOXX 50":"^STOXX50E","Hang Seng":"^HSI","MSCI EM":"EEM",
+        }
+        BONDS = {"10Y Yield":"^TNX","30Y Yield":"^TYX","5Y Yield":"^FVX","2Y Yield":"^IRX","MOVE":"^MOVE"}
+        FX    = {"EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X","AUD/USD":"AUDUSD=X","DXY":"DX-Y.NYB"}
+        COMMS = {"Gold":"GC=F","Silver":"SI=F","Crude WTI":"CL=F","Brent":"BZ=F","Nat Gas":"NG=F","Copper":"HG=F"}
+        STOCKS = {
+            "Apple":"AAPL","Microsoft":"MSFT","NVIDIA":"NVDA","Alphabet":"GOOGL",
+            "Tesla":"TSLA","Amazon":"AMZN","Meta":"META","ASML":"ASML.AS",
+            "SAP":"SAP.DE","ENI":"ENI.MI","LVMH":"MC.PA","Ferrari":"RACE.MI",
+            "Berkshire":"BRK-B","JPMorgan":"JPM","TSMC":"TSM","ARM":"ARM",
+        }
+        WATCH = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","JPM","V",
+                 "AMD","INTC","PANW","ADBE","CRM","SNOW","PLTR","COIN","NFLX","DIS",
+                 "BAC","WFC","GS","COST","WMT","NKE","MCD","BA","CAT","GE",
+                 "SMCI","ARM","ENPH","MRNA","PFE","GILD",
+                 "ENI.MI","ENEL.MI","RACE.MI","MC.PA","TTE.PA","SAP.DE","ASML.AS",
+                 "BTC-USD","ETH-USD","SOL-USD","GC=F","CL=F"]
+        with st.spinner("Fetching market snapshot…"):
+            idx_data   = {n: yf_price_chg(t) for n, t in INDICES.items()}
+            bond_data  = {n: yf_price_chg(t) for n, t in BONDS.items()}
+            fx_data    = {n: yf_price_chg(t) for n, t in FX.items()}
+            comm_data  = {n: yf_price_chg(t) for n, t in COMMS.items()}
+            stock_data = {n: yf_price_chg(t) for n, (_, t) in zip(STOCKS.keys(), [(k, v) for k, v in STOCKS.items()])}
+            # Re-fetch correctly
+            stock_data = {}
+            for nm, tk in STOCKS.items():
+                stock_data[nm] = (tk, *yf_price_chg(tk))
+            mv: list[dict] = []
+            prg_mv = st.progress(0)
+            for i, tk in enumerate(WATCH):
+                prg_mv.progress((i + 1) / len(WATCH))
+                p, c = yf_price_chg(tk)
+                if p is not None and c is not None:
+                    mv.append({"Ticker": tk, "Price": p, "Change%": c})
+            prg_mv.empty()
+        st.session_state.market_data = {
+            "indices": idx_data, "bonds": bond_data,
+            "fx": fx_data, "comms": comm_data,
+            "stocks": stock_data, "movers": mv,
+            "INDICES": INDICES, "BONDS": BONDS,
+            "FX": FX, "COMMS": COMMS, "STOCKS": STOCKS,
+        }
+        st.session_state.market_last_refresh = datetime.now()
+
+    md = st.session_state.market_data
+
     sec("GLOBAL INDICES")
     ic = st.columns(4)
-    for i, (name, tkr) in enumerate(INDICES.items()):
-        p, c = yf_price_chg(tkr)
+    for i, (name, tkr) in enumerate(md["INDICES"].items()):
+        p, c = md["indices"].get(name, (None, None))
         ic[i % 4].metric(name, f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
 
     st.markdown("---")
-    BONDS = {"10Y Yield":"^TNX","30Y Yield":"^TYX","5Y Yield":"^FVX","2Y Yield":"^IRX","MOVE":"^MOVE"}
     sec("RATES & FIXED INCOME")
     bc = st.columns(5)
-    for i, (nm, tk) in enumerate(BONDS.items()):
-        p, c = yf_price_chg(tk)
+    for i, (nm, _) in enumerate(md["BONDS"].items()):
+        p, c = md["bonds"].get(nm, (None, None))
         bc[i].metric(nm, f"{p:.3f}" if p else "N/A", f"{c:+.3f}%" if c else "—")
 
     st.markdown("---")
-    FX    = {"EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X","AUD/USD":"AUDUSD=X","DXY":"DX-Y.NYB"}
-    COMMS = {"Gold":"GC=F","Silver":"SI=F","Crude WTI":"CL=F","Brent":"BZ=F","Nat Gas":"NG=F","Copper":"HG=F"}
     cfx, ccm = st.columns(2)
     with cfx:
         sec("FOREIGN EXCHANGE")
         fc = st.columns(3)
-        for i, (nm, tk) in enumerate(FX.items()):
-            p, c = yf_price_chg(tk)
+        for i, nm in enumerate(md["FX"]):
+            p, c = md["fx"].get(nm, (None, None))
             fc[i % 3].metric(nm, f"{p:.4f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
     with ccm:
         sec("COMMODITIES")
         cc = st.columns(3)
-        for i, (nm, tk) in enumerate(COMMS.items()):
-            p, c = yf_price_chg(tk)
+        for i, nm in enumerate(md["COMMS"]):
+            p, c = md["comms"].get(nm, (None, None))
             cc[i % 3].metric(nm, f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
 
     st.markdown("---")
-    STOCKS = {
-        "Apple":"AAPL","Microsoft":"MSFT","NVIDIA":"NVDA","Alphabet":"GOOGL",
-        "Tesla":"TSLA","Amazon":"AMZN","Meta":"META","ASML":"ASML.AS",
-        "SAP":"SAP.DE","ENI":"ENI.MI","LVMH":"MC.PA","Ferrari":"RACE.MI",
-        "Berkshire":"BRK-B","JPMorgan":"JPM","TSMC":"TSM","ARM":"ARM",
-    }
     sec("KEY EQUITIES")
     sk = st.columns(4)
-    for i, (nm, tk) in enumerate(STOCKS.items()):
-        p, c = yf_price_chg(tk)
+    for i, (nm, vals) in enumerate(md["stocks"].items()):
+        tk, p, c = vals
         sk[i % 4].metric(f"{nm} ({tk})", f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
 
     st.markdown("---")
-    sec("TOP MOVERS — LIVE SCAN")
-    WATCH = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","JPM","V",
-             "AMD","INTC","PANW","ADBE","CRM","SNOW","PLTR","COIN","NFLX","DIS",
-             "BAC","WFC","GS","COST","WMT","NKE","MCD","BA","CAT","GE",
-             "SMCI","ARM","ENPH","MRNA","PFE","GILD",
-             "ENI.MI","ENEL.MI","RACE.MI","MC.PA","TTE.PA","SAP.DE","ASML.AS",
-             "BTC-USD","ETH-USD","SOL-USD","GC=F","CL=F"]
-    mv: list[dict] = []
-    prg_mv = st.progress(0)
-    for i, tk in enumerate(WATCH):
-        prg_mv.progress((i + 1) / len(WATCH))
-        p, c = yf_price_chg(tk)
-        if p is not None and c is not None:
-            mv.append({"Ticker": tk, "Price": p, "Change%": c})
-    prg_mv.empty()
+    sec("TOP MOVERS — LAST SNAPSHOT")
+    mv = md["movers"]
     mv.sort(key=lambda x: x["Change%"], reverse=True)
     cg, cl = st.columns(2)
     for col_w, data, color, label in [
@@ -594,56 +948,71 @@ elif choice == "Watchlist":
             rem = st.multiselect("Remove from watchlist", wl)
             if st.form_submit_button("Remove selected") and rem:
                 st.session_state.watchlist = [t for t in wl if t not in rem]
+                st.session_state.watchlist_data = {}
                 st.rerun()
 
+        # Only fetch if watchlist_data is empty or refresh triggered
+        refresh_wl = st.button("🔄 Refresh Prices", key="wl_refresh")
+        wl_key = ",".join(sorted(wl))
+        if not st.session_state.watchlist_data or \
+           st.session_state.watchlist_data.get("__key__") != wl_key or \
+           refresh_wl:
+            rows_wl: list[dict] = []
+            prg_wl = st.progress(0)
+            for i, tkr in enumerate(wl):
+                prg_wl.progress((i + 1) / len(wl))
+                inf_wl = yf_info(tkr)
+                p, c   = yf_price_chg(tkr)
+                if inf_wl:
+                    rows_wl.append({
+                        "Ticker":  tkr,
+                        "Name":    (inf_wl.get("shortName") or tkr)[:28],
+                        "Price":   f"{p:,.4f}" if p else "N/A",
+                        "Chg %":   f"{c:+.2f}%" if c else "—",
+                        "52W Lo":  str(inf_wl.get("fiftyTwoWeekLow",  "—")),
+                        "52W Hi":  str(inf_wl.get("fiftyTwoWeekHigh", "—")),
+                        "P/E":     f"{inf_wl['forwardPE']:.1f}"   if inf_wl.get("forwardPE")   else "N/A",
+                        "Cap$B":   f"{inf_wl.get('marketCap',0)/1e9:.1f}" if inf_wl.get("marketCap") else "N/A",
+                        "Beta":    f"{inf_wl['beta']:.2f}"        if inf_wl.get("beta")        else "N/A",
+                        "Div%":    f"{(inf_wl.get('dividendYield') or 0)*100:.2f}%",
+                        "Sector":  (inf_wl.get("sector") or "")[:18],
+                    })
+            prg_wl.empty()
+            st.session_state.watchlist_data = {"__key__": wl_key, "rows": rows_wl}
+            st.session_state.watchlist_last_refresh = datetime.now()
+
+        rows_wl = st.session_state.watchlist_data.get("rows", [])
+        if st.session_state.watchlist_last_refresh:
+            st.caption(f"Last refresh: {st.session_state.watchlist_last_refresh.strftime('%H:%M:%S')}")
+
         sec("REAL-TIME PRICES")
-        rows_wl: list[dict] = []
-        prg_wl = st.progress(0)
-        for i, tkr in enumerate(wl):
-            prg_wl.progress((i + 1) / len(wl))
-            inf_wl = yf_info(tkr)
-            p, c   = yf_price_chg(tkr)
-            if inf_wl:
-                rows_wl.append({
-                    "Ticker":  tkr,
-                    "Name":    (inf_wl.get("shortName") or tkr)[:28],
-                    "Price":   f"{p:,.4f}" if p else "N/A",
-                    "Chg %":   f"{c:+.2f}%" if c else "—",
-                    "52W Lo":  str(inf_wl.get("fiftyTwoWeekLow",  "—")),
-                    "52W Hi":  str(inf_wl.get("fiftyTwoWeekHigh", "—")),
-                    "P/E":     f"{inf_wl['forwardPE']:.1f}"   if inf_wl.get("forwardPE")   else "N/A",
-                    "Cap$B":   f"{inf_wl.get('marketCap',0)/1e9:.1f}" if inf_wl.get("marketCap") else "N/A",
-                    "Beta":    f"{inf_wl['beta']:.2f}"        if inf_wl.get("beta")        else "N/A",
-                    "Div%":    f"{(inf_wl.get('dividendYield') or 0)*100:.2f}%",
-                    "Sector":  (inf_wl.get("sector") or "")[:18],
-                })
-        prg_wl.empty()
         if rows_wl:
             navy_grid(pd.DataFrame(rows_wl).set_index("Ticker"), height=min(40 + len(rows_wl)*28, 480), key="wl_grid")
 
         sec("COMPARATIVE PERFORMANCE")
         h_opts = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y","3Y":"3y","5Y":"5y","10Y":"10y","MAX":"max"}
         h_lbl  = st.selectbox("Horizon", list(h_opts.keys()), index=3)
-        fr = {tk: s for tk in wl for s in [yf_close(tk, period=h_opts[h_lbl])] if not s.empty}
+        fr = {tk: s for tk in wl for s in [_get_close(tk, period=h_opts[h_lbl])] if not s.empty}
         if fr:
             d = pd.DataFrame(fr).dropna(how="all").ffill()
             r = ((d / d.iloc[0]) - 1) * 100
             fig_wl = go.Figure()
             for ix, col in enumerate(r.columns):
-                fig_wl.add_trace(go.Scatter(x=r.index, y=r[col], name=f"{col} ({r[col].iloc[-1]:+.1f}%)", line=dict(width=2, color=COLORS[ix % len(COLORS)])))
-            fig_wl.add_hline(y=0, line_dash="dot", line_color="#1E4976")
-            fig_wl.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":420,"title":f"Watchlist Performance — {h_lbl}"}))
+                r_sub = _subsample(r[col])
+                fig_wl.add_trace(go.Scatter(x=r_sub.index, y=r_sub, name=f"{col} ({r[col].iloc[-1]:+.1f}%)", line=dict(width=2, color=COLORS[ix % len(COLORS)])))
+            fig_wl.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
+            fig_wl.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":420,"title":f"Watchlist Performance — {h_lbl}"}))
             st.plotly_chart(fig_wl, use_container_width=True)
             if len(fr) >= 2:
                 sec("CORRELATION MATRIX")
                 corr = d.pct_change().dropna().corr()
                 fig_co = go.Figure(go.Heatmap(
                     z=corr.values, x=corr.columns.tolist(), y=corr.index.tolist(),
-                    colorscale=[[0,"#E74C3C"],[0.5,"#071220"],[1,"#2ECC71"]],
+                    colorscale=[[0,"#E74C3C"],[0.5,"#050505"],[1,"#2ECC71"]],
                     zmid=0, zmin=-1, zmax=1,
                     text=corr.round(2).values, texttemplate="%{text}",
                 ))
-                fig_co.update_layout(**pla({"height":320,"title":"Return Correlation"}))
+                fig_co.update_layout(**_pla({"height":320,"title":"Return Correlation"}))
                 st.plotly_chart(fig_co, use_container_width=True)
 
         sec("OPEN IN TERMINAL")
@@ -692,9 +1061,11 @@ elif choice == "Charts & Technical":
 
     if chart_tkr.strip():
         tkr_c = chart_tkr.strip().upper()
-        df_c  = yf_ohlcv(tkr_c, period=chart_per, interval=chart_int)
+        # Use session_state OHLCV cache — only fetches on ticker/period/interval change
+        df_c  = _get_ohlcv(tkr_c, period=chart_per, interval=chart_int)
         if not df_c.empty:
-            fig_c = build_candle_chart(tkr_c, df_c, sel_ind, f"{chart_per} · {chart_int}")
+            df_c_plot = _subsample_df(df_c)
+            fig_c = build_candle_chart(tkr_c, df_c_plot, sel_ind, f"{chart_per} · {chart_int}")
             st.plotly_chart(fig_c, use_container_width=True)
             sec("PRICE STATISTICS")
             dr_c     = df_c["Close"].pct_change().dropna()
@@ -727,6 +1098,7 @@ elif choice == "DCF Valuation":
     mode_dcf = st.radio("Mode:", ["Manual DCF","Auto-fill from Ticker","WACC Builder","Reverse DCF","Monte Carlo"], horizontal=True)
     st.markdown("---")
 
+    # ── Manual / Auto-fill ─────────────────────────────────
     if mode_dcf in ("Manual DCF","Auto-fill from Ticker"):
         af_fcf, af_shr, af_nd, af_eg = 1_000_000_000, 1_000_000_000, 0, 0.10
         af_price = None
@@ -734,8 +1106,8 @@ elif choice == "DCF Valuation":
         if mode_dcf == "Auto-fill from Ticker":
             af_tkr = st.text_input("Ticker", "AAPL", key="af_tkr")
             if af_tkr.strip():
-                eng_dcf = UnifiedMarketDataEngine(af_tkr.strip().upper())
-                af_inf  = eng_dcf.info()
+                cached_af = _get_terminal_data(af_tkr.strip().upper())
+                af_inf = cached_af["info"]
                 if af_inf:
                     af_fcf   = af_inf.get("freeCashflow",     1_000_000_000) or 1_000_000_000
                     af_shr   = af_inf.get("sharesOutstanding",1_000_000_000) or 1_000_000_000
@@ -779,10 +1151,20 @@ elif choice == "DCF Valuation":
             tv_method=tv_m, exit_multiple=ex_m, last_ebitda=float(last_eb),
         )
 
+        # Cache DCF result — only recalculates when inputs change
+        import hashlib, json
+        dcf_hash = hashlib.md5(json.dumps({
+            "fcf":fcf,"g1":g1,"g2":g2,"wacc":wacc,"tg":tg,
+            "n1":n1,"n2":n2,"shr":str(shr),"nd":str(nd),"tv_m":tv_m,"ex_m":ex_m,"last_eb":str(last_eb)
+        }, sort_keys=True).encode()).hexdigest()
+
         with c2:
             sec("VALUATION RESULTS")
             if wacc/100 > tg/100:
-                res = run_dcf(dcf_inp)
+                if dcf_hash not in st.session_state.dcf_result_cache:
+                    st.session_state.dcf_result_cache[dcf_hash] = run_dcf(dcf_inp)
+                res = st.session_state.dcf_result_cache[dcf_hash]
+
                 r1,r2 = st.columns(2)
                 r1.metric("Enterprise Value",   fmt_bn(res.ev))
                 r2.metric("Equity Value",       fmt_bn(res.equity_value))
@@ -803,7 +1185,7 @@ elif choice == "DCF Valuation":
                 fig_dcf   = go.Figure()
                 fig_dcf.add_trace(go.Bar(x=yr_labels, y=[v/1e6 for v in all_cfs],
                                          name="Projected FCF", marker_color=bar_cols, opacity=0.85))
-                fig_dcf.update_layout(**pla({"yaxis":yaxis_plain("$ Millions"),"height":260,"title":"FCF Projection (Amber=Stage1 · Blue=Stage2)"}))
+                fig_dcf.update_layout(**_pla({"yaxis":yaxis_plain("$ Millions"),"height":260,"title":"FCF Projection (Amber=Stage1 · Blue=Stage2)"}))
                 st.plotly_chart(fig_dcf, use_container_width=True)
             else:
                 st.error("WACC must be > Terminal Growth rate.")
@@ -814,6 +1196,7 @@ elif choice == "DCF Valuation":
         g_range = [g1/100  + d for d in (-0.03,-0.015,0,0.015,0.03)]
         navy_grid(dcf_sensitivity(dcf_inp, w_range, g_range), height=200, key="dcf_sens")
 
+    # ── WACC Builder ───────────────────────────────────────
     elif mode_dcf == "WACC Builder":
         sec("CAPM WACC CALCULATOR")
         w1, w2 = st.columns(2)
@@ -843,11 +1226,13 @@ elif choice == "DCF Valuation":
         <b>WACC:</b> (Ke×We) + (Kd×(1−t)×Wd) = <b style='color:#F5A623'>{wres['wacc']*100:.3f}%</b>
         </div>""", unsafe_allow_html=True)
 
+    # ── Reverse DCF ────────────────────────────────────────
     elif mode_dcf == "Reverse DCF":
         sec("REVERSE DCF — IMPLIED GROWTH RATE")
         rev_tkr = st.text_input("Ticker", "AAPL", key="rev_tkr")
         if rev_tkr.strip():
-            ri = yf_info(rev_tkr.strip().upper())
+            cached_rev = _get_terminal_data(rev_tkr.strip().upper())
+            ri = cached_rev["info"]
             if ri:
                 mkt_cap = ri.get("marketCap",0) or 0
                 nd_r    = (ri.get("totalDebt",0) or 0) - (ri.get("totalCash",0) or 0)
@@ -876,8 +1261,11 @@ elif choice == "DCF Valuation":
                 else:
                     st.warning("FCF and Enterprise Value must be positive.")
 
-    else:  # Monte Carlo
+    # ── Monte Carlo — LAZY ─────────────────────────────────
+    else:
         sec("MONTE CARLO SIMULATION — 1000× DCF DISTRIBUTION")
+        st.info("⚡ Monte Carlo runs on-demand only. Configure inputs then click **Run**.")
+
         mc_fcf = st.number_input("Base FCF ($)", value=1_000_000_000, step=50_000_000, format="%d", key="mc_fcf")
         mc1,mc2,mc3 = st.columns(3)
         with mc1:
@@ -893,7 +1281,12 @@ elif choice == "DCF Valuation":
             mc_n   = st.select_slider("Simulations",[500,1000,5000,10000],value=1000,key="mc_n")
         mc_shr = st.number_input("Shares",   value=1_000_000_000, step=10_000_000,  format="%d",key="mc_shr")
         mc_nd  = st.number_input("Net Debt", value=0,             step=100_000_000, format="%d",key="mc_nd")
+
+        # Build run key to avoid redundant recalculations
+        mc_run_key = f"{mc_fcf}_{g_mu}_{g_std}_{w_mu}_{w_std}_{mc_n1}_{mc_n2}_{mc_tg}_{mc_n}_{mc_shr}_{mc_nd}"
+
         if st.button("▶ RUN MONTE CARLO", use_container_width=True):
+            st.session_state["mc_run_key_last"] = mc_run_key
             with st.spinner(f"Running {mc_n:,} DCF simulations…"):
                 fvs = monte_carlo_dcf(
                     base_fcf=float(mc_fcf), shares=float(mc_shr), net_debt=float(mc_nd),
@@ -902,6 +1295,11 @@ elif choice == "DCF Valuation":
                     g_mu=g_mu/100,    g_sigma=g_std/100,
                     n_sim=mc_n,
                 )
+            st.session_state["mc_fvs"] = fvs
+
+        # Display cached MC results if available and inputs unchanged
+        if "mc_fvs" in st.session_state and st.session_state.get("mc_run_key_last") == mc_run_key:
+            fvs = st.session_state["mc_fvs"]
             if len(fvs) > 10:
                 fig_mc = go.Figure()
                 fig_mc.add_trace(go.Histogram(x=fvs, nbinsx=80, marker_color="#F5A623", opacity=0.82, name="Fair Value"))
@@ -909,7 +1307,7 @@ elif choice == "DCF Valuation":
                     v = np.percentile(fvs, pct)
                     fig_mc.add_vline(x=v, line_dash="dash", line_color=col,
                                      annotation_text=f"{lbl}: ${v:,.0f}", annotation_font_color=col, annotation_font_size=10)
-                fig_mc.update_layout(**pla({
+                fig_mc.update_layout(**_pla({
                     "height": 360,
                     "title": f"Monte Carlo DCF — {len(fvs):,} valid / {mc_n:,} simulations",
                     "xaxis": yaxis_plain("Fair Value / Share ($)"),
@@ -941,16 +1339,17 @@ elif choice == "Multi-Compare":
             h_lbl = st.selectbox("Horizon", list(h_map.keys()), index=6)
         tk_list = [x.strip().upper() for x in tk_in.split(",") if x.strip()]
         if tk_list:
-            fr = {t: s for t in tk_list for s in [yf_close(t, period=h_map[h_lbl])] if not s.empty}
+            fr = {t: s for t in tk_list for s in [_get_close(t, period=h_map[h_lbl])] if not s.empty}
             if fr:
                 d = pd.DataFrame(fr).dropna(how="all").ffill()
                 r = ((d / d.iloc[0]) - 1) * 100
                 fig_r = go.Figure()
                 for ix, col in enumerate(r.columns):
-                    fig_r.add_trace(go.Scatter(x=r.index, y=r[col], name=f"{col} ({r[col].iloc[-1]:+.1f}%)",
+                    r_sub = _subsample(r[col])
+                    fig_r.add_trace(go.Scatter(x=r_sub.index, y=r_sub, name=f"{col} ({r[col].iloc[-1]:+.1f}%)",
                                                line=dict(width=2, color=COLORS[ix % len(COLORS)])))
-                fig_r.add_hline(y=0, line_dash="dot", line_color="#1E4976")
-                fig_r.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":460,"title":f"Normalised Returns — {h_lbl}"}))
+                fig_r.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
+                fig_r.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":460,"title":f"Normalised Returns — {h_lbl}"}))
                 st.plotly_chart(fig_r, use_container_width=True)
                 dr = d.pct_change().dropna()
                 ay = max((d.index[-1]-d.index[0]).days/365.25, 0.1)
@@ -968,9 +1367,9 @@ elif choice == "Multi-Compare":
                     sec("CORRELATION MATRIX")
                     cr = dr.corr()
                     fig_cr = go.Figure(go.Heatmap(z=cr.values,x=cr.columns.tolist(),y=cr.index.tolist(),
-                        colorscale=[[0,"#E74C3C"],[0.5,"#06111F"],[1,"#2ECC71"]],zmid=0,
+                        colorscale=[[0,"#E74C3C"],[0.5,"#050505"],[1,"#2ECC71"]],zmid=0,
                         text=cr.round(2).values,texttemplate="%{text}"))
-                    fig_cr.update_layout(**pla({"height":320,"title":"Return Correlation Matrix"}))
+                    fig_cr.update_layout(**_pla({"height":320,"title":"Return Correlation Matrix"}))
                     st.plotly_chart(fig_cr, use_container_width=True)
 
     elif mode_mc == "🏢 Fundamentals":
@@ -1003,7 +1402,7 @@ elif choice == "Multi-Compare":
         rm_list = [x.strip().upper() for x in rm_in.split(",") if x.strip()]
         rf_rm   = st.slider("Risk-free (%)", 0.0, 7.0, 4.0, step=0.1, key="rf_rm2") / 100
         if rm_list:
-            fr_r = {t: s for t in rm_list for s in [yf_close(t, period=rm_per)] if not s.empty}
+            fr_r = {t: s for t in rm_list for s in [_get_close(t, period=rm_per)] if not s.empty}
             if fr_r:
                 d_r  = pd.DataFrame(fr_r).dropna(how="all").ffill()
                 dr_r = d_r.pct_change().dropna()
@@ -1029,7 +1428,7 @@ elif choice == "Multi-Compare":
 
 
 # ══════════════════════════════════════════════════════════
-#  PAGE: PORTFOLIO BACKTEST
+#  PAGE: PORTFOLIO BACKTEST — LAZY EXECUTION
 # ══════════════════════════════════════════════════════════
 elif choice == "Portfolio Backtest":
     ptitle("PORTFOLIO BACKTEST ENGINE","Vectorized · Drawdown · Rolling Sharpe · Monthly Heatmap · Factor Exposure")
@@ -1075,41 +1474,58 @@ elif choice == "Portfolio Backtest":
     else:
         be, bb = "SPY", "AGG"
 
+    # Build a deterministic key for this backtest config
+    bt_config_key = f"{','.join(a for a in assets if a)}_{','.join(str(w) for w in weights)}_{bench_lbl}_{years}_{rf_bt}_{rebal}"
+
     run_btn = st.button("▶  RUN BACKTEST", use_container_width=True)
 
+    # LAZY: only run if button pressed AND config changed
     if run_btn and tw == 100:
-        valid = [(a, weights[i]) for i, a in enumerate(assets) if a]
-        wt_dict = {p[0]: p[1]/100 for p in valid}
-        start_s = (datetime.now() - timedelta(days=365*years)).strftime("%Y-%m-%d")
+        if bt_config_key != st.session_state.backtest_key:
+            valid = [(a, weights[i]) for i, a in enumerate(assets) if a]
+            wt_dict = {p[0]: p[1]/100 for p in valid}
+            start_s = (datetime.now() - timedelta(days=365*years)).strftime("%Y-%m-%d")
 
-        with st.spinner("Downloading price data…"):
-            frames: dict[str, pd.Series] = {}
-            bench_series = None
-            for tk in [p[0] for p in valid]:
-                s = yf_close(tk, start=start_s)
-                if not s.empty: frames[tk] = s
-                else: st.warning(f"⚠ No data: {tk}")
-            if bench_tkr:
-                bs = yf_close(bench_tkr, start=start_s)
-                bench_series = bs if not bs.empty else None
-            else:
-                b_eq = yf_close(be.upper(), start=start_s)
-                b_bd = yf_close(bb.upper(), start=start_s)
-                if not b_eq.empty and not b_bd.empty:
-                    a_b  = pd.concat([b_eq, b_bd], axis=1).dropna().ffill()
-                    bench_series = (a_b.iloc[:,0]*0.6 + a_b.iloc[:,1]*0.4).rename("60/40")
-                elif not b_eq.empty:
-                    bench_series = b_eq
-            if not frames:
-                st.error("No valid asset data.")
+            with st.spinner("Downloading price data…"):
+                frames: dict[str, pd.Series] = {}
+                bench_series = None
+                for tk in [p[0] for p in valid]:
+                    s = _get_close(tk, start=start_s)
+                    if not s.empty: frames[tk] = s
+                    else: st.warning(f"⚠ No data: {tk}")
+                if bench_tkr:
+                    bs = _get_close(bench_tkr, start=start_s)
+                    bench_series = bs if not bs.empty else None
+                else:
+                    b_eq = _get_close(be.upper(), start=start_s)
+                    b_bd = _get_close(bb.upper(), start=start_s)
+                    if not b_eq.empty and not b_bd.empty:
+                        a_b  = pd.concat([b_eq, b_bd], axis=1).dropna().ffill()
+                        bench_series = (a_b.iloc[:,0]*0.6 + a_b.iloc[:,1]*0.4).rename("60/40")
+                    elif not b_eq.empty:
+                        bench_series = b_eq
+                if not frames:
+                    st.error("No valid asset data.")
+                    st.stop()
+                px_df = pd.DataFrame(frames).dropna(how="all").ffill().bfill()
+
+            try:
+                bt = run_backtest(px_df, wt_dict, bench_series, rf=rf_bt/100, rebalance=rebal)
+                st.session_state.backtest_result = bt
+                st.session_state.backtest_key    = bt_config_key
+                st.session_state["bt_valid"]     = valid
+                st.session_state["bt_px_df"]     = px_df
+                st.session_state["bt_bench_series"] = bench_series
+            except Exception as e:
+                st.error(f"Backtest error: {e}")
                 st.stop()
-            px_df = pd.DataFrame(frames).dropna(how="all").ffill().bfill()
 
-        try:
-            bt = run_backtest(px_df, wt_dict, bench_series, rf=rf_bt/100, rebalance=rebal)
-        except Exception as e:
-            st.error(f"Backtest error: {e}")
-            st.stop()
+    # Render results from cache — survives slider/tab interactions
+    if st.session_state.backtest_result is not None:
+        bt      = st.session_state.backtest_result
+        valid   = st.session_state.get("bt_valid", [])
+        px_df   = st.session_state.get("bt_px_df", pd.DataFrame())
+        bench_series = st.session_state.get("bt_bench_series", None)
 
         def _f(v, s="%", d=2):
             if v is None or (isinstance(v,float) and (math.isnan(v) or math.isinf(v))): return "N/A"
@@ -1136,39 +1552,45 @@ elif choice == "Portfolio Backtest":
 
         sec("EQUITY CURVE")
         eq_norm = (bt.equity_curve / bt.equity_curve.iloc[0] - 1) * 100
+        eq_sub  = _subsample(eq_norm)
         fig_eq  = go.Figure()
-        fig_eq.add_trace(go.Scatter(x=eq_norm.index, y=eq_norm, name="Strategy",
+        fig_eq.add_trace(go.Scatter(x=eq_sub.index, y=eq_sub, name="Strategy",
                                     line=dict(width=3,color="#F5A623"), fill="tozeroy", fillcolor="rgba(245,166,35,0.05)"))
         if bench_series is not None:
-            bn = (bench_series / bench_series.iloc[0] - 1) * 100
-            fig_eq.add_trace(go.Scatter(x=bn.index, y=bn, name=bench_lbl, line=dict(width=1.8,dash="dash",color="#5A88B0")))
+            bn     = (bench_series / bench_series.iloc[0] - 1) * 100
+            bn_sub = _subsample(bn)
+            fig_eq.add_trace(go.Scatter(x=bn_sub.index, y=bn_sub, name=bench_lbl, line=dict(width=1.8,dash="dash",color="#5A88B0")))
+        wt_dict_render = {p[0]: p[1]/100 for p in valid}
         for ix, a in enumerate([p[0] for p in valid]):
             if a in px_df.columns:
-                an = (px_df[a] / px_df[a].iloc[0] - 1) * 100
-                fig_eq.add_trace(go.Scatter(x=an.index, y=an, name=f"{a}({wt_dict[a]*100:.0f}%)",
+                an     = (px_df[a] / px_df[a].iloc[0] - 1) * 100
+                an_sub = _subsample(an)
+                fig_eq.add_trace(go.Scatter(x=an_sub.index, y=an_sub, name=f"{a}({wt_dict_render.get(a,0)*100:.0f}%)",
                                             line=dict(width=1,color=COLORS[(ix+2)%len(COLORS)]),opacity=0.40))
-        fig_eq.add_hline(y=0, line_dash="dot", line_color="#1E4976")
-        fig_eq.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":480,"title":"Portfolio Equity Curve"}))
+        fig_eq.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
+        fig_eq.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":480,"title":"Portfolio Equity Curve"}))
         st.plotly_chart(fig_eq, use_container_width=True)
 
         cd, cr = st.columns(2)
         with cd:
             sec("DRAWDOWN FROM PEAK")
+            dd_sub = _subsample(bt.drawdown)
             fig_dd = go.Figure()
-            fig_dd.add_trace(go.Scatter(x=bt.drawdown.index, y=bt.drawdown,
+            fig_dd.add_trace(go.Scatter(x=dd_sub.index, y=dd_sub,
                                         fill="tozeroy",line=dict(color="#E74C3C",width=1.5),
                                         fillcolor="rgba(231,76,60,0.10)"))
-            fig_dd.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Drawdown %"),"height":280}))
+            fig_dd.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Drawdown %"),"height":280}))
             st.plotly_chart(fig_dd, use_container_width=True)
         with cr:
             sec("ROLLING SHARPE (63d)")
+            rs_sub = _subsample(bt.rolling_sharpe)
             fig_rs = go.Figure()
-            fig_rs.add_trace(go.Scatter(x=bt.rolling_sharpe.index, y=bt.rolling_sharpe,
+            fig_rs.add_trace(go.Scatter(x=rs_sub.index, y=rs_sub,
                                         line=dict(color="#F5A623",width=1.5)))
-            fig_rs.add_hline(y=0, line_dash="dot", line_color="#1E4976")
+            fig_rs.add_hline(y=0, line_dash="dot", line_color="#1E1E1E")
             fig_rs.add_hline(y=1, line_dash="dot", line_color="#2ECC71",
                              annotation_text="Sharpe=1",annotation_font_color="#2ECC71")
-            fig_rs.update_layout(**pla({"height":280,"title":"Rolling Sharpe"}))
+            fig_rs.update_layout(**_pla({"height":280,"title":"Rolling Sharpe"}))
             st.plotly_chart(fig_rs, use_container_width=True)
 
         if not bt.monthly_heatmap.empty:
@@ -1177,11 +1599,11 @@ elif choice == "Portfolio Backtest":
                 z=bt.monthly_heatmap.values,
                 x=bt.monthly_heatmap.columns.tolist(),
                 y=bt.monthly_heatmap.index.tolist(),
-                colorscale=[[0,"#E74C3C"],[0.5,"#06111F"],[1,"#2ECC71"]], zmid=0,
+                colorscale=[[0,"#E74C3C"],[0.5,"#050505"],[1,"#2ECC71"]], zmid=0,
                 text=[[f"{v:.1f}%" if not math.isnan(v) else "" for v in row] for row in bt.monthly_heatmap.values],
                 texttemplate="%{text}",
             ))
-            fig_mth.update_layout(**pla({"height":max(220,len(bt.monthly_heatmap)*26+80),"title":"Monthly Returns (%)"}))
+            fig_mth.update_layout(**_pla({"height":max(220,len(bt.monthly_heatmap)*26+80),"title":"Monthly Returns (%)"}))
             st.plotly_chart(fig_mth, use_container_width=True)
 
         ch, cc = st.columns(2)
@@ -1193,7 +1615,7 @@ elif choice == "Portfolio Backtest":
             if bt.var95: fig_h.add_vline(x=bt.var95, line_dash="dash", line_color="#E74C3C",
                                           annotation_text=f"VaR95:{bt.var95:.2f}%",annotation_font_color="#E74C3C")
             fig_h.add_vline(x=0, line_dash="dot", line_color="#5A88B0")
-            fig_h.update_layout(**pla({"xaxis":yaxis_plain("Daily Return %"),"yaxis":yaxis_plain("Frequency"),"height":280}))
+            fig_h.update_layout(**_pla({"xaxis":yaxis_plain("Daily Return %"),"yaxis":yaxis_plain("Frequency"),"height":280}))
             st.plotly_chart(fig_h, use_container_width=True)
         with cc:
             avail_a = [a for a in [p[0] for p in valid] if a in px_df.columns]
@@ -1201,9 +1623,9 @@ elif choice == "Portfolio Backtest":
                 sec("ASSET CORRELATION")
                 cor = px_df[avail_a].pct_change().dropna().corr()
                 fig_co = go.Figure(go.Heatmap(z=cor.values,x=cor.columns.tolist(),y=cor.index.tolist(),
-                    colorscale=[[0,"#E74C3C"],[0.5,"#06111F"],[1,"#2ECC71"]],zmid=0,
+                    colorscale=[[0,"#E74C3C"],[0.5,"#050505"],[1,"#2ECC71"]],zmid=0,
                     text=cor.round(2).values,texttemplate="%{text}"))
-                fig_co.update_layout(**pla({"height":280}))
+                fig_co.update_layout(**_pla({"height":280}))
                 st.plotly_chart(fig_co, use_container_width=True)
 
         if not bt.contributions.empty:
@@ -1213,14 +1635,14 @@ elif choice == "Portfolio Backtest":
         sec("RISK DIAGNOSTICS")
         tips: list[str] = []
         if not math.isnan(bt.sharpe):
-            if bt.sharpe < 0:    tips.append(f"🔴 <b>Negative Sharpe ({bt.sharpe:.2f})</b> — return below risk-free.")
-            elif bt.sharpe < 0.5:tips.append(f"🟡 <b>Low Sharpe ({bt.sharpe:.2f})</b> — add uncorrelated assets: GLD, TLT, REITs.")
+            if bt.sharpe < 0:     tips.append(f"🔴 <b>Negative Sharpe ({bt.sharpe:.2f})</b> — return below risk-free.")
+            elif bt.sharpe < 0.5: tips.append(f"🟡 <b>Low Sharpe ({bt.sharpe:.2f})</b> — add uncorrelated assets: GLD, TLT, REITs.")
             elif bt.sharpe >= 1.5:tips.append(f"🏆 <b>High Sharpe ({bt.sharpe:.2f})</b> — excellent. Verify over longer period.")
-            else:                 tips.append(f"✅ <b>Acceptable Sharpe ({bt.sharpe:.2f})</b> — target >1.0 for consistent alpha.")
+            else:                  tips.append(f"✅ <b>Acceptable Sharpe ({bt.sharpe:.2f})</b> — target >1.0 for consistent alpha.")
         if bt.ann_vol > 25:  tips.append(f"⚡ <b>High Volatility ({bt.ann_vol:.1f}%)</b> — reduce equity concentration.")
         if bt.max_dd < -40:  tips.append(f"💥 <b>Extreme Drawdown ({bt.max_dd:.1f}%)</b> — consider volatility targeting.")
         if bt.var95  < -3:   tips.append(f"📉 <b>High VaR95 ({bt.var95:.2f}%/day)</b>.")
-        if len(valid) < 4:   tips.append(f"🔀 <b>Low Diversification ({len(valid)} assets)</b> — 8-15 uncorrelated assets optimal.")
+        if len(valid) < 4:   tips.append(f"🔀 <b>Low Diversification ({len(valid)} assets)</b> — 8–15 uncorrelated assets optimal.")
         if not tips:          tips.append("ℹ️ Parameters within normal bounds. No critical signals detected.")
         for tip in tips:
             alert(tip)
@@ -1230,11 +1652,10 @@ elif choice == "Portfolio Backtest":
 
 
 # ══════════════════════════════════════════════════════════
-#  PAGE: STOCK SCREENER  ← COMPLETELY OVERHAULED v6.0
+#  PAGE: STOCK SCREENER
 # ══════════════════════════════════════════════════════════
 elif choice == "Stock Screener":
 
-    # ── Sub-page: Company Terminal drill-down ─────────────
     if st.session_state.screener_selected:
         tgt = st.session_state.screener_selected
         back_col, _ = st.columns([1, 8])
@@ -1247,17 +1668,14 @@ elif choice == "Stock Screener":
         show_terminal(tgt, SECTOR_PEERS.get(sec_s,"SPY,QQQ,IWM"))
         st.stop()
 
-    # ── Main Screener Page ────────────────────────────────
     ptitle(
-        "INSTITUTIONAL STOCK SCREENER  v6.0",
+        "INSTITUTIONAL STOCK SCREENER  v6.1",
         "Finviz Primary Engine · yFinance Batch Fallback · 1,500+ Global Tickers · AgGrid",
     )
 
-    # ── Data load controls ────────────────────────────────
     ctrl_c1, ctrl_c2, ctrl_c3 = st.columns([2, 2, 3])
     with ctrl_c1:
-        force_yf = st.checkbox("Force yFinance fallback", value=False, key="scr_force_yf",
-                               help="Bypass Finviz and use multi-threaded yFinance batch download")
+        force_yf = st.checkbox("Force yFinance fallback", value=False, key="scr_force_yf")
     with ctrl_c2:
         reload_btn = st.button("🔄  Reload Data", use_container_width=True, key="scr_reload")
     with ctrl_c3:
@@ -1267,11 +1685,7 @@ elif choice == "Stock Screener":
             unsafe_allow_html=True,
         )
 
-    # ── Load master data (cached) ─────────────────────────
-    needs_load = (
-        st.session_state.screener_df is None
-        or reload_btn
-    )
+    needs_load = (st.session_state.screener_df is None or reload_btn)
 
     if needs_load:
         with st.spinner("⬛ Loading screener data…  (Finviz → yFinance fallback)"):
@@ -1282,20 +1696,18 @@ elif choice == "Stock Screener":
     df_master  = st.session_state.screener_df
     src_label  = st.session_state.screener_source or "—"
 
-    # ── Source status bar ─────────────────────────────────
     n_total = len(df_master) if df_master is not None else 0
     src_col  = "#2ECC71" if "Finviz" in src_label else ("#F5A623" if "yFinance" in src_label else "#E74C3C")
     st.markdown(
         f"<div class='screener-stats-bar'>"
         f"<span>SOURCE: <b style='color:{src_col}'>{src_label}</b></span>"
         f"<span>UNIVERSE: <b>{n_total:,}</b> tickers loaded</span>"
-        f"<span style='color:#1A3A5C'>│</span>"
+        f"<span style='color:#1A1A1A'>│</span>"
         f"<span style='color:#5A88B0;font-size:0.60rem'>Filters applied in-memory · No additional requests fired</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    # ── Filter panel ──────────────────────────────────────
     if df_master is not None and not df_master.empty:
         sectors   = sorted(df_master["Sector"].dropna().unique().tolist())
         countries = sorted(df_master["Country"].dropna().unique().tolist())
@@ -1305,36 +1717,27 @@ elif choice == "Stock Screener":
     with st.expander("⚙  SCREENER FILTERS", expanded=True):
         filter_vals = render_screener_filter_panel(sectors=sectors, countries=countries)
 
-    # ── Apply filters ─────────────────────────────────────
     if df_master is not None and not df_master.empty:
         df_filtered = apply_screener_filters(
-            df            = df_master,
-            sector        = filter_vals["sector"],
-            country       = filter_vals["country"],
-            keyword       = filter_vals["keyword"],
+            df              = df_master,
+            sector          = filter_vals["sector"],
+            country         = filter_vals["country"],
+            keyword         = filter_vals["keyword"],
             min_marketcap_b = filter_vals["min_marketcap_b"],
             max_marketcap_b = filter_vals["max_marketcap_b"],
-            max_pe        = filter_vals["max_pe"],
-            min_pe        = filter_vals["min_pe"],
-            min_change_pct= filter_vals["min_change_pct"],
-            max_change_pct= filter_vals["max_change_pct"],
+            max_pe          = filter_vals["max_pe"],
+            min_pe          = filter_vals["min_pe"],
+            min_change_pct  = filter_vals["min_change_pct"],
+            max_change_pct  = filter_vals["max_change_pct"],
         )
 
-        # ── Sort ──────────────────────────────────────────
         sort_col = filter_vals["sort_col"]
         sort_asc = filter_vals["sort_asc"]
         if sort_col in df_filtered.columns:
-            df_filtered = df_filtered.sort_values(
-                sort_col,
-                ascending=sort_asc,
-                na_position="last",
-            ).reset_index(drop=True)
+            df_filtered = df_filtered.sort_values(sort_col, ascending=sort_asc, na_position="last").reset_index(drop=True)
 
         n_filtered = len(df_filtered)
-        n_total    = len(df_master)
-
-        # ── Results header ────────────────────────────────
-        pct_shown = n_filtered / n_total * 100 if n_total > 0 else 0
+        pct_shown  = n_filtered / n_total * 100 if n_total > 0 else 0
         st.markdown(
             f"<div class='screener-stats-bar' style='margin-top:0.5rem'>"
             f"<span>RESULTS: <b style='color:#F5A623'>{n_filtered:,}</b> / {n_total:,} tickers "
@@ -1345,7 +1748,7 @@ elif choice == "Stock Screener":
             unsafe_allow_html=True,
         )
 
-        # ── AgGrid render ─────────────────────────────────
+        # AgGrid with client-side sorting/filtering enabled
         grid_result = screener_aggrid(
             df       = df_filtered,
             height   = 580,
@@ -1353,70 +1756,44 @@ elif choice == "Stock Screener":
             page_size= filter_vals["page_size"],
         )
 
-        # ── Sector distribution chart ─────────────────────
         if n_filtered > 0:
             st.markdown("---")
             ch_left, ch_right = st.columns(2)
-
             with ch_left:
                 sec("SECTOR DISTRIBUTION")
-                sect_counts = (
-                    df_filtered["Sector"]
-                    .value_counts()
-                    .head(12)
-                    .reset_index()
-                )
+                sect_counts = df_filtered["Sector"].value_counts().head(12).reset_index()
                 sect_counts.columns = ["Sector", "Count"]
                 fig_sec = go.Figure(go.Bar(
-                    x=sect_counts["Sector"],
-                    y=sect_counts["Count"],
-                    marker_color=[COLORS[i % len(COLORS)] for i in range(len(sect_counts))],
-                    opacity=0.85,
+                    x=sect_counts["Sector"], y=sect_counts["Count"],
+                    marker_color=[COLORS[i % len(COLORS)] for i in range(len(sect_counts))], opacity=0.85,
                 ))
-                fig_sec.update_layout(**pla({
+                fig_sec.update_layout(**_pla({
                     "height": 260,
                     "xaxis": dict(tickangle=-30, tickfont=dict(size=9, color="#5A88B0")),
                     "yaxis": yaxis_plain("Companies"),
                 }))
                 st.plotly_chart(fig_sec, use_container_width=True)
-
             with ch_right:
                 sec("MARKET CAP DISTRIBUTION")
                 mc_vals = pd.to_numeric(df_filtered["MarketCap_B"], errors="coerce").dropna()
                 if not mc_vals.empty:
-                    fig_mc_hist = go.Figure(go.Histogram(
-                        x=mc_vals,
-                        nbinsx=40,
-                        marker_color="#3B8EF0",
-                        opacity=0.80,
-                    ))
-                    fig_mc_hist.update_layout(**pla({
-                        "height":  260,
-                        "xaxis": yaxis_plain("Market Cap ($B)"),
-                        "yaxis": yaxis_plain("Count"),
-                    }))
+                    fig_mc_hist = go.Figure(go.Histogram(x=mc_vals, nbinsx=40, marker_color="#3B8EF0", opacity=0.80))
+                    fig_mc_hist.update_layout(**_pla({"height":260,"xaxis":yaxis_plain("Market Cap ($B)"),"yaxis":yaxis_plain("Count")}))
                     st.plotly_chart(fig_mc_hist, use_container_width=True)
 
-        # ── Terminal drill-down selector ──────────────────
         st.markdown("---")
         sec("OPEN IN COMPANY TERMINAL")
         if n_filtered > 0:
-            ticker_options = [
-                f"{row['Ticker']}  —  {row['Name']}"
-                for _, row in df_filtered.head(200).iterrows()
-            ]
+            ticker_options = [f"{row['Ticker']}  —  {row['Name']}" for _, row in df_filtered.head(200).iterrows()]
             sel_scr = st.selectbox("Select company to analyse", ticker_options, key="scr_sel_box")
             if st.button("⌨  OPEN COMPANY TERMINAL", use_container_width=True, key="scr_open_btn"):
                 st.session_state.screener_selected = sel_scr.split("  —  ")[0].strip()
                 st.rerun()
-
-            # AgGrid row-click shortcut
             if grid_result is not None:
                 try:
                     selected_rows = grid_result.get("selected_rows", None)
                     if selected_rows is not None:
                         if hasattr(selected_rows, "empty"):
-                            # DataFrame
                             if not selected_rows.empty and "Ticker" in selected_rows.columns:
                                 clicked_tkr = str(selected_rows.iloc[0]["Ticker"]).strip()
                                 if clicked_tkr:
@@ -1431,13 +1808,8 @@ elif choice == "Stock Screener":
                     pass
         else:
             st.info("No companies match the current filters. Try broadening your criteria.")
-
     else:
-        st.error(
-            "⚠ Could not load screener data. "
-            "Both Finviz and yFinance are unreachable. "
-            "Check your network connection and try again."
-        )
+        st.error("⚠ Could not load screener data. Both Finviz and yFinance are unreachable.")
 
 
 # ══════════════════════════════════════════════════════════
@@ -1449,6 +1821,9 @@ elif choice == "Macro & FRED":
     tab_yc, tab_infl, tab_emp, tab_cr, tab_rates = st.tabs([
         "📈 Yield Curve","💸 Inflation","👷 Employment & GDP","🏦 Credit Spreads","🌐 Global Rates",
     ])
+
+    # FRED data fetched via @st.cache_data(ttl=3600) in data_engine.py
+    # These tabs are lightweight — no lazy gate needed; FRED calls are fast.
 
     with tab_yc:
         sec("US TREASURY YIELD CURVE — LIVE")
@@ -1472,8 +1847,8 @@ elif choice == "Macro & FRED":
             for x,y in snap.items():
                 fig_yc.add_annotation(x=x, y=y, text=f"{y:.3f}%", showarrow=False, yshift=13,
                                       font=dict(color="#F5A623",size=9,family="IBM Plex Mono"))
-            fig_yc.update_layout(**pla({"height":300,"title":"US Treasury Yield Curve",
-                                        "xaxis":yaxis_plain("Maturity"),"yaxis":yaxis_plain("Yield (%)")}))
+            fig_yc.update_layout(**_pla({"height":300,"title":"US Treasury Yield Curve",
+                                         "xaxis":yaxis_plain("Maturity"),"yaxis":yaxis_plain("Yield (%)")}))
             st.plotly_chart(fig_yc, use_container_width=True)
         sec("YIELD SPREAD HISTORY")
         ysp_per = st.selectbox("Period",["1y","3y","5y","10y","20y"],index=2,key="ysp_per")
@@ -1489,9 +1864,9 @@ elif choice == "Macro & FRED":
         if not ssp.empty:
             sc_colors = ["#2ECC71" if v>=0 else "#E74C3C" for v in ssp]
             fig_sp.add_trace(go.Bar(x=ssp.index,y=ssp,name="10Y-2Y Spread",marker_color=sc_colors,opacity=0.80),row=2,col=1)
-            fig_sp.add_hline(y=0,line_dash="dash",line_color="#1E4976",row=2,col=1)
-        fig_sp.update_layout(**pla({"height":440,"title":"Treasury Yields & 10Y-2Y Spread"}))
-        for r in [1,2]: fig_sp.update_yaxes(gridcolor="#091827",showgrid=True,row=r,col=1)
+            fig_sp.add_hline(y=0,line_dash="dash",line_color="#111111",row=2,col=1)
+        fig_sp.update_layout(**_pla({"height":440,"title":"Treasury Yields & 10Y-2Y Spread"}))
+        for r in [1,2]: fig_sp.update_yaxes(gridcolor="#111111",showgrid=True,row=r,col=1)
         st.plotly_chart(fig_sp, use_container_width=True)
 
     with tab_infl:
@@ -1505,14 +1880,13 @@ elif choice == "Macro & FRED":
             if not s_i.empty:
                 yoy = s_i.pct_change(12).dropna() * 100
                 if not yoy.empty:
-                    fig_infl.add_trace(go.Scatter(x=yoy.index,y=yoy,name=lbl_i,
-                                                  line=dict(width=2,color=COLORS[ix%len(COLORS)])))
+                    fig_infl.add_trace(go.Scatter(x=yoy.index,y=yoy,name=lbl_i,line=dict(width=2,color=COLORS[ix%len(COLORS)])))
                     val_i  = float(yoy.iloc[-1])
                     prev_i = float(yoy.iloc[-2]) if len(yoy)>1 else val_i
                     st.metric(lbl_i, f"{val_i:.2f}%", f"{val_i-prev_i:+.2f}bps")
         fig_infl.add_hline(y=2.0,line_dash="dot",line_color="rgba(245,166,35,0.6)",
                            annotation_text="Fed 2% Target",annotation_font_color="#F5A623")
-        fig_infl.update_layout(**pla({"height":340,"title":"Inflation YoY (%)","xaxis":xaxis_time(),"yaxis":yaxis_plain("YoY %")}))
+        fig_infl.update_layout(**_pla({"height":340,"title":"Inflation YoY (%)","xaxis":xaxis_time(),"yaxis":yaxis_plain("YoY %")}))
         st.plotly_chart(fig_infl, use_container_width=True)
 
     with tab_emp:
@@ -1531,7 +1905,7 @@ elif choice == "Macro & FRED":
                     val_e  = float(s_e.iloc[-1])
                     prev_e = float(s_e.iloc[-2]) if len(s_e)>1 else val_e
                     st.metric(lbl_e, f"{val_e:,.1f}", f"{val_e-prev_e:+.1f}")
-            fig_e.update_layout(**pla({"height":260,"title":"Employment","xaxis":xaxis_time(),"yaxis":yaxis_plain()}))
+            fig_e.update_layout(**_pla({"height":260,"title":"Employment","xaxis":xaxis_time(),"yaxis":yaxis_plain()}))
             st.plotly_chart(fig_e, use_container_width=True)
         with cg:
             fig_g = go.Figure()
@@ -1546,7 +1920,7 @@ elif choice == "Macro & FRED":
                     val_g  = float(s_g.iloc[-1])
                     prev_g = float(s_g.iloc[-2]) if len(s_g)>1 else val_g
                     st.metric(lbl_g, f"{val_g:,.2f}", f"{val_g-prev_g:+.2f}")
-            fig_g.update_layout(**pla({"height":260,"title":"GDP & Activity","xaxis":xaxis_time(),"yaxis":yaxis_plain()}))
+            fig_g.update_layout(**_pla({"height":260,"title":"GDP & Activity","xaxis":xaxis_time(),"yaxis":yaxis_plain()}))
             st.plotly_chart(fig_g, use_container_width=True)
 
     with tab_cr:
@@ -1562,7 +1936,7 @@ elif choice == "Macro & FRED":
                 val_c  = float(s_c.iloc[-1])
                 prev_c = float(s_c.iloc[-2]) if len(s_c)>1 else val_c
                 st.metric(lbl_c, f"{val_c:.3f}%", f"{val_c-prev_c:+.3f}bps")
-        fig_cr.update_layout(**pla({"height":320,"title":"Credit Spreads","xaxis":xaxis_time(),"yaxis":yaxis_plain("Spread %")}))
+        fig_cr.update_layout(**_pla({"height":320,"title":"Credit Spreads","xaxis":xaxis_time(),"yaxis":yaxis_plain("Spread %")}))
         st.plotly_chart(fig_cr, use_container_width=True)
         sec("MARKET RISK PROXIES")
         RISK_T = {"^VIX":"^VIX","^MOVE":"^MOVE","HYG":"HYG","LQD":"LQD","EEM":"EEM","DXY":"DX-Y.NYB"}
@@ -1574,15 +1948,15 @@ elif choice == "Macro & FRED":
     with tab_rates:
         sec("GLOBAL POLICY RATES")
         POL = {"Fed Funds (FEDFUNDS)":"FEDFUNDS"}
-        gr_per  = st.selectbox("Period",["1y","3y","5y","10y","20y"],index=3,key="gr_per")
-        start_gr= {"1y":"2023","3y":"2021","5y":"2019","10y":"2014","20y":"2004"}[gr_per]
-        fig_gr  = go.Figure()
+        gr_per   = st.selectbox("Period",["1y","3y","5y","10y","20y"],index=3,key="gr_per")
+        start_gr = {"1y":"2023","3y":"2021","5y":"2019","10y":"2014","20y":"2004"}[gr_per]
+        fig_gr   = go.Figure()
         for ix, (lbl_r, sid_r) in enumerate(POL.items()):
             s_r = fetch_fred(sid_r, start=f"{start_gr}-01-01")
             if not s_r.empty:
                 fig_gr.add_trace(go.Scatter(x=s_r.index,y=s_r,name=lbl_r,line=dict(width=2,color=COLORS[ix%len(COLORS)])))
                 st.metric(lbl_r, f"{float(s_r.iloc[-1]):.3f}%")
-        fig_gr.update_layout(**pla({"height":300,"title":"Policy Rates","xaxis":xaxis_time(),"yaxis":yaxis_plain("Rate %")}))
+        fig_gr.update_layout(**_pla({"height":300,"title":"Policy Rates","xaxis":xaxis_time(),"yaxis":yaxis_plain("Rate %")}))
         st.plotly_chart(fig_gr, use_container_width=True)
         sec("FX CROSS RATES")
         FX_G = {"EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X","AUD/USD":"AUDUSD=X","DXY":"DX-Y.NYB"}
@@ -1601,7 +1975,14 @@ elif choice == "Options & Derivatives":
     opt_tkr = st.text_input("Ticker","AAPL",key="opt_tkr")
     if opt_tkr.strip():
         tkr_o = opt_tkr.strip().upper()
-        calls, puts, exps = yf_options(tkr_o)
+
+        # Cache option chain in session_state per ticker
+        opt_cache_key = f"options_{tkr_o}"
+        if opt_cache_key not in st.session_state:
+            calls, puts, exps = yf_options(tkr_o)
+            st.session_state[opt_cache_key] = (calls, puts, exps)
+        calls, puts, exps = st.session_state[opt_cache_key]
+
         if calls is None or (isinstance(calls, pd.DataFrame) and calls.empty and not exps):
             interrupted(f"No options data for {tkr_o}.")
         else:
@@ -1610,10 +1991,15 @@ elif choice == "Options & Derivatives":
             sec("SELECT EXPIRATION")
             if exps:
                 exp_sel = st.selectbox("Expiration", exps)
-                try:
-                    ch = yf.Ticker(tkr_o).option_chain(exp_sel)
-                    calls, puts = ch.calls, ch.puts
-                except Exception: pass
+                exp_cache_key = f"opt_chain_{tkr_o}_{exp_sel}"
+                if exp_cache_key not in st.session_state:
+                    try:
+                        ch = yf.Ticker(tkr_o).option_chain(exp_sel)
+                        st.session_state[exp_cache_key] = (ch.calls, ch.puts)
+                    except Exception:
+                        st.session_state[exp_cache_key] = (calls, puts)
+                calls, puts = st.session_state[exp_cache_key]
+
             m1,m2,m3 = st.columns(3)
             if cur_p: m1.metric("Spot Price", f"${cur_p:,.2f}")
             if not calls.empty and "openInterest" in calls.columns: m2.metric("Call OI",f"{calls['openInterest'].sum():,.0f}")
@@ -1661,8 +2047,8 @@ elif choice == "Options & Derivatives":
                                                     name="Put IV",line=dict(color="#3B8EF0",width=2),marker=dict(size=6)))
                     if cur_p: fig_iv.add_vline(x=cur_p,line_dash="dash",line_color="#2ECC71",
                                                annotation_text=f"Spot ${cur_p:.2f}",annotation_font_color="#2ECC71")
-                    fig_iv.update_layout(**pla({"height":360,"title":f"IV Smile — {tkr_o}",
-                                               "xaxis":yaxis_plain("Strike ($)"),"yaxis":yaxis_plain("IV (%)")}))
+                    fig_iv.update_layout(**_pla({"height":360,"title":f"IV Smile — {tkr_o}",
+                                                "xaxis":yaxis_plain("Strike ($)"),"yaxis":yaxis_plain("IV (%)")}))
                     st.plotly_chart(fig_iv, use_container_width=True)
                 else: interrupted("IV data unavailable.")
             with t_oi:
@@ -1675,8 +2061,8 @@ elif choice == "Options & Derivatives":
                     fig_oi.add_trace(go.Bar(x=oi_m["strike"],y=oi_m["Call OI"],name="Call OI",marker_color="#2ECC71",opacity=0.75))
                     fig_oi.add_trace(go.Bar(x=oi_m["strike"],y=-oi_m["Put OI"],name="Put OI",marker_color="#E74C3C",opacity=0.75))
                     if cur_p: fig_oi.add_vline(x=cur_p,line_dash="dash",line_color="#F5A623",annotation_text=f"Spot ${cur_p:.2f}")
-                    fig_oi.update_layout(**pla({"barmode":"overlay","height":340,"title":f"OI Distribution — {tkr_o}",
-                                               "xaxis":yaxis_plain("Strike ($)"),"yaxis":yaxis_plain("Open Interest")}))
+                    fig_oi.update_layout(**_pla({"barmode":"overlay","height":340,"title":f"OI Distribution — {tkr_o}",
+                                                "xaxis":yaxis_plain("Strike ($)"),"yaxis":yaxis_plain("Open Interest")}))
                     st.plotly_chart(fig_oi, use_container_width=True)
                 else: interrupted("OI data unavailable.")
 
@@ -1703,15 +2089,16 @@ elif choice == "FX & Commodities":
         fx_sel = st.multiselect("Chart pairs", list(FX_PAIRS.keys()), default=["EUR/USD","GBP/USD","USD/JPY","DXY"])
         fx_per = st.selectbox("Period",["1mo","3mo","6mo","1y","3y","5y"],index=3,key="fx_per")
         if fx_sel:
-            fr_fx = {nm:s for nm in fx_sel for s in [yf_close(FX_PAIRS[nm],period=fx_per)] if not s.empty}
+            fr_fx = {nm:s for nm in fx_sel for s in [_get_close(FX_PAIRS[nm],period=fx_per)] if not s.empty}
             if fr_fx:
                 d_fx = pd.DataFrame(fr_fx).dropna(how="all").ffill()
                 r_fx = ((d_fx/d_fx.iloc[0])-1)*100
                 fig_fx = go.Figure()
                 for ix,col in enumerate(r_fx.columns):
-                    fig_fx.add_trace(go.Scatter(x=r_fx.index,y=r_fx[col],name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
-                fig_fx.add_hline(y=0,line_dash="dot",line_color="#1E4976")
-                fig_fx.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"FX Performance"}))
+                    r_sub = _subsample(r_fx[col])
+                    fig_fx.add_trace(go.Scatter(x=r_sub.index,y=r_sub,name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
+                fig_fx.add_hline(y=0,line_dash="dot",line_color="#1E1E1E")
+                fig_fx.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"FX Performance"}))
                 st.plotly_chart(fig_fx, use_container_width=True)
 
     with t_met:
@@ -1721,15 +2108,16 @@ elif choice == "FX & Commodities":
         for i,(nm,tk) in enumerate(METALS.items()):
             p,c = yf_price_chg(tk); mc[i%3].metric(nm, f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
         met_per = st.selectbox("Period",["3mo","6mo","1y","3y","5y","10y","max"],index=2,key="met_per")
-        fr_m = {nm:s for nm,tk in METALS.items() for s in [yf_close(tk,period=met_per)] if not s.empty}
+        fr_m = {nm:s for nm,tk in METALS.items() for s in [_get_close(tk,period=met_per)] if not s.empty}
         if fr_m:
             d_m = pd.DataFrame(fr_m).dropna(how="all").ffill()
             r_m = ((d_m/d_m.iloc[0])-1)*100
             fig_m = go.Figure()
             for ix,col in enumerate(r_m.columns):
-                fig_m.add_trace(go.Scatter(x=r_m.index,y=r_m[col],name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
-            fig_m.add_hline(y=0,line_dash="dot",line_color="#1E4976")
-            fig_m.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"Metals Performance"}))
+                r_sub = _subsample(r_m[col])
+                fig_m.add_trace(go.Scatter(x=r_sub.index,y=r_sub,name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
+            fig_m.add_hline(y=0,line_dash="dot",line_color="#1E1E1E")
+            fig_m.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"Metals Performance"}))
             st.plotly_chart(fig_m, use_container_width=True)
 
     with t_en:
@@ -1739,15 +2127,16 @@ elif choice == "FX & Commodities":
         for i,(nm,tk) in enumerate(ENERGY.items()):
             p,c = yf_price_chg(tk); ec[i%3].metric(nm, f"{p:,.3f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
         en_per = st.selectbox("Period",["3mo","6mo","1y","3y","5y"],index=2,key="en_per")
-        fr_e = {nm:s for nm,tk in ENERGY.items() for s in [yf_close(tk,period=en_per)] if not s.empty}
+        fr_e = {nm:s for nm,tk in ENERGY.items() for s in [_get_close(tk,period=en_per)] if not s.empty}
         if fr_e:
             d_e = pd.DataFrame(fr_e).dropna(how="all").ffill()
             r_e = ((d_e/d_e.iloc[0])-1)*100
             fig_e = go.Figure()
             for ix,col in enumerate(r_e.columns):
-                fig_e.add_trace(go.Scatter(x=r_e.index,y=r_e[col],name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
-            fig_e.add_hline(y=0,line_dash="dot",line_color="#1E4976")
-            fig_e.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"Energy Performance"}))
+                r_sub = _subsample(r_e[col])
+                fig_e.add_trace(go.Scatter(x=r_sub.index,y=r_sub,name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
+            fig_e.add_hline(y=0,line_dash="dot",line_color="#1E1E1E")
+            fig_e.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"Energy Performance"}))
             st.plotly_chart(fig_e, use_container_width=True)
 
     with t_ag:
@@ -1777,17 +2166,21 @@ elif choice == "Economic Calendar":
 
     st.markdown("---")
     sec("EARNINGS CALENDAR — NEXT UPCOMING")
-    earn_watch = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","GS","BAC"]
-    ec_data: list[dict] = []
-    for tk in earn_watch:
-        try:
-            ed = yf_earnings_dates(tk)
-            if not ed.empty:
-                future = ed[ed.index > datetime.now()] if hasattr(ed.index,"tz") else ed
-                if not future.empty:
-                    ec_data.append({"Ticker":tk,"Next Earnings":str(future.index[0])[:10]})
-        except Exception:
-            pass
+    earn_cache_key = "earn_cal_data"
+    if earn_cache_key not in st.session_state:
+        earn_watch = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","JPM","GS","BAC"]
+        ec_data: list[dict] = []
+        for tk in earn_watch:
+            try:
+                ed = yf_earnings_dates(tk)
+                if not ed.empty:
+                    future = ed[ed.index > datetime.now()] if hasattr(ed.index,"tz") else ed
+                    if not future.empty:
+                        ec_data.append({"Ticker":tk,"Next Earnings":str(future.index[0])[:10]})
+            except Exception:
+                pass
+        st.session_state[earn_cache_key] = ec_data
+    ec_data = st.session_state[earn_cache_key]
     if ec_data:
         navy_grid(pd.DataFrame(ec_data).set_index("Ticker"), height=180, key="earn_cal")
     else:
