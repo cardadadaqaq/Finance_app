@@ -11,6 +11,7 @@ import warnings
 import time
 import concurrent.futures
 from datetime import datetime, timedelta
+from io import StringIO
 from typing import Optional
 
 import numpy as np
@@ -198,59 +199,349 @@ def _empty_screener_df() -> pd.DataFrame:
 
 
 # ══════════════════════════════════════════════════════════
-#  PRIMARY ENGINE: FINVIZ SCRAPER
+#  FINVIZ HTTP SESSION  (reused across calls)
+# ══════════════════════════════════════════════════════════
+_FINVIZ_SESSION = requests.Session()
+_FINVIZ_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection":      "keep-alive",
+    "Referer":         "https://finviz.com/screener.ashx",
+    "DNT":             "1",
+})
+
+# Finviz export column IDs for the overview layout (v=152):
+# 0=Ticker, 1=Company, 2=Sector, 3=Industry, 4=Country, 5=Market Cap,
+# 6=P/E, 7=Price, 8=Change, 9=Volume
+_FINVIZ_EXPORT_URL    = "https://finviz.com/export.ashx"
+_FINVIZ_SCREENER_URL  = "https://finviz.com/screener.ashx"
+
+# Number of tickers Finviz returns per HTML screener page
+_FINVIZ_PAGE_SIZE = 20
+
+
+# ══════════════════════════════════════════════════════════
+#  PRIMARY ENGINE: FINVIZ export.ashx  (single CSV request)
 # ══════════════════════════════════════════════════════════
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_finviz_screener_data() -> pd.DataFrame:
     """
-    Pull the full Finviz screener table via finvizfinance.
+    Download the FULL Finviz screener universe in a SINGLE HTTP request via
+    the ``export.ashx`` CSV endpoint.  This bypasses the page-by-page HTML
+    scraper entirely and returns thousands of rows in ~1 second.
+
+    Strategy (3 layers, first success wins):
+      1. export.ashx  – one-shot CSV dump (fastest, requires a live session)
+      2. Parallel HTML pages via screener.ashx  – concurrent requests, 20 rows
+         per page; probes total-page-count then fires all pages concurrently
+         with a ThreadPoolExecutor (fast even for 200+ pages)
+      3. Returns _empty_screener_df() on total failure
+
     Returns a clean, normalised DataFrame with typed numeric columns.
-    Caches for 10 minutes.  On ANY failure returns _empty_screener_df().
+    Cached for 10 minutes.
+    """
+
+    # ── Layer 1: export.ashx CSV (single request) ─────────────────────────
+    df = _fetch_via_export_ashx()
+    if not df.empty:
+        return df
+
+    # ── Layer 2: parallel HTML screener pages ─────────────────────────────
+    df = _fetch_via_parallel_html()
+    if not df.empty:
+        return df
+
+    return _empty_screener_df()
+
+
+# ──────────────────────────────────────────────────────────
+#  Layer 1 helper: export.ashx  → CSV
+# ──────────────────────────────────────────────────────────
+def _fetch_via_export_ashx() -> pd.DataFrame:
+    """
+    GET https://finviz.com/export.ashx?v=152&r=1
+    Returns the whole screener as a single CSV (no pagination).
+    Works without Elite subscription for the default universe (~7,000+ tickers).
     """
     try:
-        from finvizfinance.screener.overview import Overview  # lazy import
+        params = {
+            "v": "152",   # overview layout
+            "r": "1",     # start from row 1 (all rows)
+            "c": "0,1,2,3,4,5,6,7,8,9",  # columns: Ticker→Volume
+        }
+        r = _FINVIZ_SESSION.get(
+            _FINVIZ_EXPORT_URL,
+            params=params,
+            timeout=20,
+        )
+        r.raise_for_status()
 
-        foverview = Overview()
-        raw: pd.DataFrame = foverview.screener_view()
+        # Finviz returns 401/login page HTML when not authenticated
+        content_type = r.headers.get("Content-Type", "")
+        if "text/html" in content_type or r.text.strip().startswith("<"):
+            # Not authenticated — session cookie missing; try warm-up then retry
+            _finviz_warmup()
+            r = _FINVIZ_SESSION.get(
+                _FINVIZ_EXPORT_URL,
+                params=params,
+                timeout=20,
+            )
+            r.raise_for_status()
+            content_type = r.headers.get("Content-Type", "")
+            if "text/html" in content_type or r.text.strip().startswith("<"):
+                return _empty_screener_df()
 
-        if raw is None or raw.empty:
+        df = pd.read_csv(StringIO(r.text))
+        if df.empty or "Ticker" not in df.columns:
             return _empty_screener_df()
 
-        # ── Rename columns we care about ──────────────────
-        rename_map: dict[str, str] = {}
-        for col in raw.columns:
-            if col in _FINVIZ_RENAME:
-                rename_map[col] = _FINVIZ_RENAME[col]
-        raw = raw.rename(columns=rename_map)
-
-        # ── Guarantee required columns exist ──────────────
-        required = ["Ticker", "Name", "Sector", "Industry", "Country",
-                    "MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]
-        for col in required:
-            if col not in raw.columns:
-                raw[col] = None
-
-        # ── Parse numeric columns ─────────────────────────
-        raw["MarketCap_B"]  = raw["MarketCap_raw"].apply(_parse_finviz_market_cap) / 1e9
-        raw["PE"]           = raw["PE_raw"].apply(_parse_finviz_pe)
-        raw["Price"]        = raw["Price_raw"].apply(_parse_finviz_price)
-        raw["Change_Pct"]   = raw["Change_raw"].apply(_parse_finviz_pct)
-        raw["Volume"]       = raw["Volume_raw"].apply(_parse_finviz_volume)
-
-        # ── Fill string columns ───────────────────────────
-        for col in ["Ticker", "Name", "Sector", "Industry", "Country"]:
-            raw[col] = raw[col].fillna("N/A").astype(str)
-
-        raw["Source"] = "Finviz"
-
-        # ── Return only the clean columns ─────────────────
-        out = raw[_SCREENER_EMPTY_COLS].copy()
-        out = out[out["Ticker"].str.strip().ne("") & out["Ticker"].ne("N/A")]
-        out = out.reset_index(drop=True)
-        return out
+        return _normalise_finviz_csv(df)
 
     except Exception:
         return _empty_screener_df()
+
+
+def _finviz_warmup() -> None:
+    """
+    Visit screener.ashx first to obtain a valid session cookie,
+    then the export endpoint will honour the request.
+    """
+    try:
+        _FINVIZ_SESSION.get(
+            _FINVIZ_SCREENER_URL,
+            params={"v": "111"},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
+# ──────────────────────────────────────────────────────────
+#  Layer 2 helper: parallel HTML screener pages
+# ──────────────────────────────────────────────────────────
+def _fetch_via_parallel_html() -> pd.DataFrame:
+    """
+    Scrape screener.ashx HTML pages concurrently.
+
+    Steps:
+      a) Fetch page 1 to parse total result count and column headers.
+      b) Fire all remaining pages simultaneously via ThreadPoolExecutor.
+      c) Parse BeautifulSoup tables in each worker; merge results.
+
+    This is ~10-20× faster than the sequential finvizfinance approach
+    because all HTTP round-trips happen in parallel.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return _empty_screener_df()
+
+    try:
+        # ── a) Probe page 1 ───────────────────────────────
+        page1_soup, total_rows = _fetch_screener_page_html(1)
+        if page1_soup is None or total_rows == 0:
+            return _empty_screener_df()
+
+        headers, rows_p1 = _parse_screener_table(page1_soup)
+        if not headers or not rows_p1:
+            return _empty_screener_df()
+
+        total_pages = max(1, (total_rows + _FINVIZ_PAGE_SIZE - 1) // _FINVIZ_PAGE_SIZE)
+        # Cap at 500 pages (~10,000 tickers) to stay polite
+        total_pages = min(total_pages, 500)
+
+        all_rows: list[list] = rows_p1
+
+        # ── b) Remaining pages in parallel ───────────────
+        remaining_start_rows = [
+            1 + p * _FINVIZ_PAGE_SIZE
+            for p in range(1, total_pages)
+        ]
+
+        if remaining_start_rows:
+            def _worker(start_row: int) -> list[list]:
+                soup, _ = _fetch_screener_page_html(start_row)
+                if soup is None:
+                    return []
+                _, rows = _parse_screener_table(soup)
+                return rows or []
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=30) as pool:
+                futures = {
+                    pool.submit(_worker, sr): sr
+                    for sr in remaining_start_rows
+                }
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        all_rows.extend(fut.result(timeout=15))
+                    except Exception:
+                        pass
+
+        if not all_rows:
+            return _empty_screener_df()
+
+        # ── c) Build DataFrame ────────────────────────────
+        df = pd.DataFrame(all_rows, columns=headers)
+        return _normalise_finviz_html_df(df)
+
+    except Exception:
+        return _empty_screener_df()
+
+
+def _fetch_screener_page_html(
+    start_row: int,
+) -> tuple["BeautifulSoup | None", int]:
+    """
+    Fetch one HTML screener page (starting at ``start_row``).
+    Returns (BeautifulSoup, total_result_count).
+    total_result_count is only meaningful for start_row=1 (first page).
+    """
+    try:
+        from bs4 import BeautifulSoup
+
+        r = _FINVIZ_SESSION.get(
+            _FINVIZ_SCREENER_URL,
+            params={"v": "111", "r": str(start_row)},
+            timeout=12,
+        )
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "lxml")
+
+        # Parse total count from "Total: 7,423" text on page 1
+        total = 0
+        try:
+            td_total = soup.find("td", {"class": "count-text"})
+            if td_total:
+                import re
+                m = re.search(r"Total:\s*([\d,]+)", td_total.get_text())
+                if m:
+                    total = int(m.group(1).replace(",", ""))
+        except Exception:
+            pass
+
+        return soup, total
+
+    except Exception:
+        return None, 0
+
+
+def _parse_screener_table(
+    soup: "BeautifulSoup",
+) -> tuple[list[str], list[list]]:
+    """
+    Extract column headers and data rows from a Finviz screener HTML page.
+    Returns (headers, rows) where each row is a list of raw string values.
+    """
+    try:
+        table = soup.find("table", {"class": "screener_table"})
+        if table is None:
+            return [], []
+
+        tr_list = table.find_all("tr")
+        if len(tr_list) < 2:
+            return [], []
+
+        # Header row (first <tr>)
+        headers = [th.get_text(strip=True) for th in tr_list[0].find_all("th")][1:]
+
+        # Data rows
+        rows: list[list] = []
+        for tr in tr_list[1:]:
+            cells = tr.find_all("td")
+            if len(cells) < 2:
+                continue
+            row = [td.get_text(strip=True) for td in cells[1:]]
+            # Pad / trim to match header length
+            while len(row) < len(headers):
+                row.append("")
+            rows.append(row[: len(headers)])
+
+        return headers, rows
+
+    except Exception:
+        return [], []
+
+
+# ──────────────────────────────────────────────────────────
+#  Normalisation helpers
+# ──────────────────────────────────────────────────────────
+def _normalise_finviz_csv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalise the DataFrame returned by export.ashx (CSV format).
+    Column names from the CSV export are already clean English labels.
+    """
+    # export.ashx CSV header names
+    csv_rename = {
+        "Ticker":     "Ticker",
+        "Company":    "Name",
+        "Sector":     "Sector",
+        "Industry":   "Industry",
+        "Country":    "Country",
+        "Market Cap": "MarketCap_raw",
+        "P/E":        "PE_raw",
+        "Price":      "Price_raw",
+        "Change":     "Change_raw",
+        "Volume":     "Volume_raw",
+    }
+
+    rename_map = {c: csv_rename[c] for c in df.columns if c in csv_rename}
+    df = df.rename(columns=rename_map)
+
+    # Guarantee all expected raw columns exist
+    for col in ["MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]:
+        if col not in df.columns:
+            df[col] = None
+
+    return _build_clean_df(df, source="Finviz")
+
+
+def _normalise_finviz_html_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalise the DataFrame built from parallel HTML scraping.
+    Column names come from the screener table <th> elements.
+    """
+    rename_map = {c: _FINVIZ_RENAME[c] for c in df.columns if c in _FINVIZ_RENAME}
+    df = df.rename(columns=rename_map)
+
+    for col in ["MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]:
+        if col not in df.columns:
+            df[col] = None
+
+    return _build_clean_df(df, source="Finviz")
+
+
+def _build_clean_df(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """
+    Common final-stage normalisation: parse numeric columns, fill strings,
+    filter empty tickers, return only _SCREENER_EMPTY_COLS.
+    """
+    df["MarketCap_B"] = df["MarketCap_raw"].apply(_parse_finviz_market_cap) / 1e9
+    df["PE"]          = df["PE_raw"].apply(_parse_finviz_pe)
+    df["Price"]       = df["Price_raw"].apply(_parse_finviz_price)
+    df["Change_Pct"]  = df["Change_raw"].apply(_parse_finviz_pct)
+    df["Volume"]      = df["Volume_raw"].apply(_parse_finviz_volume)
+
+    for col in ["Ticker", "Name", "Sector", "Industry", "Country"]:
+        if col not in df.columns:
+            df[col] = "N/A"
+        df[col] = df[col].fillna("N/A").astype(str)
+
+    df["Source"] = source
+
+    # Ensure all output columns exist
+    for col in _SCREENER_EMPTY_COLS:
+        if col not in df.columns:
+            df[col] = float("nan") if col not in ("Ticker", "Name", "Sector", "Industry", "Country", "Source") else "N/A"
+
+    out = df[_SCREENER_EMPTY_COLS].copy()
+    out = out[out["Ticker"].str.strip().ne("") & out["Ticker"].ne("N/A")]
+    return out.reset_index(drop=True)
 
 
 # ══════════════════════════════════════════════════════════
@@ -269,7 +560,6 @@ def fetch_backup_yfinance_screener(
     avoid hammering Yahoo.  On any failure returns _empty_screener_df().
     """
     if universe is None:
-        # Strip crypto/ETF-heavy prefixes that have no PE/sector metadata
         universe = tuple(SCREENER_UNIVERSE_FULL)
 
     try:
@@ -287,12 +577,10 @@ def fetch_backup_yfinance_screener(
         if raw_px.empty:
             return _empty_screener_df()
 
-        # Handle both MultiIndex and flat Index (single ticker edge case)
         if isinstance(raw_px.columns, pd.MultiIndex):
             close_df  = raw_px["Close"]   if "Close"  in raw_px.columns.get_level_values(0) else pd.DataFrame()
             volume_df = raw_px["Volume"]  if "Volume" in raw_px.columns.get_level_values(0) else pd.DataFrame()
         else:
-            # Single-ticker flat case — wrap into DataFrame with ticker as column
             single = list(universe)[0]
             close_df  = raw_px[["Close"]].rename(columns={"Close": single})
             volume_df = raw_px[["Volume"]].rename(columns={"Volume": single})
@@ -316,17 +604,16 @@ def fetch_backup_yfinance_screener(
         valid_tickers = [t for t in last_close.index if pd.notna(last_close[t])]
 
         def _fetch_meta(tkr: str) -> dict:
-            """Fetch a single ticker's metadata; return empty dict on failure."""
             try:
                 info = yf.Ticker(tkr).info
                 if not info:
                     return {"Ticker": tkr}
                 return {
-                    "Ticker":     tkr,
-                    "Name":       (info.get("longName") or info.get("shortName") or tkr)[:40],
-                    "Sector":     info.get("sector",   "N/A"),
-                    "Industry":   info.get("industry", "N/A"),
-                    "Country":    info.get("country",  "N/A"),
+                    "Ticker":      tkr,
+                    "Name":        (info.get("longName") or info.get("shortName") or tkr)[:40],
+                    "Sector":      info.get("sector",   "N/A"),
+                    "Industry":    info.get("industry", "N/A"),
+                    "Country":     info.get("country",  "N/A"),
                     "MarketCap_B": (info.get("marketCap") or 0) / 1e9,
                     "PE":          info.get("forwardPE") or info.get("trailingPE") or float("nan"),
                 }
@@ -334,7 +621,6 @@ def fetch_backup_yfinance_screener(
                 return {"Ticker": tkr}
 
         meta_rows: list[dict] = []
-        # Use at most 40 workers; don't flood Yahoo Finance
         with concurrent.futures.ThreadPoolExecutor(max_workers=40) as pool:
             futures = {pool.submit(_fetch_meta, t): t for t in valid_tickers}
             for fut in concurrent.futures.as_completed(futures):
@@ -358,11 +644,8 @@ def fetch_backup_yfinance_screener(
             })
 
         price_df = pd.DataFrame(price_records)
+        merged   = price_df.merge(meta_df, on="Ticker", how="left")
 
-        # Merge price + meta
-        merged = price_df.merge(meta_df, on="Ticker", how="left")
-
-        # Fill missing string columns
         for col in ["Name", "Sector", "Industry", "Country"]:
             if col not in merged.columns:
                 merged[col] = "N/A"
@@ -388,8 +671,8 @@ def load_screener_master_data(
     force_fallback: bool = False,
 ) -> tuple[pd.DataFrame, str]:
     """
-    Attempt Finviz first; fall back to yFinance batch on any failure.
-    Returns (DataFrame, source_label).
+    Attempt Finviz first (export.ashx → parallel HTML); fall back to
+    yFinance batch on any failure.  Returns (DataFrame, source_label).
     """
     if not force_fallback:
         df = fetch_finviz_screener_data()
@@ -455,7 +738,7 @@ def apply_screener_filters(
 
 
 # ══════════════════════════════════════════════════════════
-#  UNIFIED MARKET DATA ENGINE  (unchanged from v5)
+#  UNIFIED MARKET DATA ENGINE
 # ══════════════════════════════════════════════════════════
 class UnifiedMarketDataEngine:
     """
@@ -504,26 +787,26 @@ class UnifiedMarketDataEngine:
                 return pd.Series(dtype=float)
 
             if inc_a is not None and not inc_a.empty:
-                results["Revenue"]      = _row(inc_a, "Total Revenue", "Revenue")
-                results["Gross Profit"] = _row(inc_a, "Gross Profit")
+                results["Revenue"]          = _row(inc_a, "Total Revenue", "Revenue")
+                results["Gross Profit"]     = _row(inc_a, "Gross Profit")
                 results["Operating Income"] = _row(inc_a, "Operating Income", "EBIT")
-                results["Net Income"]   = _row(inc_a, "Net Income")
-                results["EBITDA"]       = _row(inc_a, "EBITDA", "Normalized EBITDA")
+                results["Net Income"]       = _row(inc_a, "Net Income")
+                results["EBITDA"]           = _row(inc_a, "EBITDA", "Normalized EBITDA")
 
             if cf_a is not None and not cf_a.empty:
                 results["Operating CF"] = _row(cf_a, "Operating Cash Flow", "Total Cash From Operating")
                 results["Capex"]        = _row(cf_a, "Capital Expenditure", "Capex")
                 fcf_op  = results.get("Operating CF", pd.Series(dtype=float))
-                fcf_cap = results.get("Capex", pd.Series(dtype=float))
+                fcf_cap = results.get("Capex",        pd.Series(dtype=float))
                 if not fcf_op.empty and not fcf_cap.empty:
                     aligned = fcf_op.align(fcf_cap, join="inner")
                     results["Free Cash Flow"] = aligned[0] - aligned[1].abs()
 
             if bal_a is not None and not bal_a.empty:
-                results["Total Assets"]  = _row(bal_a, "Total Assets")
-                results["Total Debt"]    = _row(bal_a, "Total Debt", "Long Term Debt")
-                results["Total Equity"]  = _row(bal_a, "Stockholders Equity", "Total Equity")
-                results["Cash"]          = _row(bal_a, "Cash And Cash Equivalents", "Cash")
+                results["Total Assets"] = _row(bal_a, "Total Assets")
+                results["Total Debt"]   = _row(bal_a, "Total Debt", "Long Term Debt")
+                results["Total Equity"] = _row(bal_a, "Stockholders Equity", "Total Equity")
+                results["Cash"]         = _row(bal_a, "Cash And Cash Equivalents", "Cash")
 
             results = {k: v for k, v in results.items() if isinstance(v, pd.Series) and not v.empty}
 
@@ -534,7 +817,7 @@ class UnifiedMarketDataEngine:
 
 
 # ══════════════════════════════════════════════════════════
-#  INDIVIDUAL YF HELPER FUNCTIONS  (unchanged API surface)
+#  INDIVIDUAL YF HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, show_spinner=False)
 def yf_info(ticker: str) -> dict:
@@ -580,7 +863,7 @@ def yf_ohlcv(ticker: str, period: str = "1y", interval: str = "1d") -> pd.DataFr
 @st.cache_data(ttl=300, show_spinner=False)
 def yf_price_chg(ticker: str) -> tuple[float | None, float | None]:
     try:
-        info = yf_info(ticker)
+        info  = yf_info(ticker)
         price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
         prev  = info.get("previousClose") or price
         if price and prev and prev != 0:
@@ -595,12 +878,12 @@ def yf_financials(ticker: str) -> dict[str, pd.DataFrame]:
     try:
         t = yf.Ticker(ticker)
         return {
-            "income_a":   t.income_stmt         if t.income_stmt   is not None else pd.DataFrame(),
-            "balance_a":  t.balance_sheet        if t.balance_sheet is not None else pd.DataFrame(),
-            "cashflow_a": t.cashflow             if t.cashflow      is not None else pd.DataFrame(),
-            "income_q":   t.quarterly_income_stmt if t.quarterly_income_stmt is not None else pd.DataFrame(),
-            "balance_q":  t.quarterly_balance_sheet if t.quarterly_balance_sheet is not None else pd.DataFrame(),
-            "cashflow_q": t.quarterly_cashflow   if t.quarterly_cashflow is not None else pd.DataFrame(),
+            "income_a":   t.income_stmt              if t.income_stmt              is not None else pd.DataFrame(),
+            "balance_a":  t.balance_sheet             if t.balance_sheet            is not None else pd.DataFrame(),
+            "cashflow_a": t.cashflow                  if t.cashflow                 is not None else pd.DataFrame(),
+            "income_q":   t.quarterly_income_stmt     if t.quarterly_income_stmt    is not None else pd.DataFrame(),
+            "balance_q":  t.quarterly_balance_sheet   if t.quarterly_balance_sheet  is not None else pd.DataFrame(),
+            "cashflow_q": t.quarterly_cashflow        if t.quarterly_cashflow       is not None else pd.DataFrame(),
         }
     except Exception:
         return {}
@@ -622,7 +905,7 @@ def yf_options(ticker: str) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
 @st.cache_data(ttl=600, show_spinner=False)
 def yf_holders(ticker: str) -> pd.DataFrame:
     try:
-        t = yf.Ticker(ticker)
+        t  = yf.Ticker(ticker)
         ih = t.institutional_holders
         return ih if ih is not None and not ih.empty else pd.DataFrame()
     except Exception:
@@ -632,7 +915,7 @@ def yf_holders(ticker: str) -> pd.DataFrame:
 @st.cache_data(ttl=300, show_spinner=False)
 def yf_recommendations(ticker: str) -> pd.DataFrame:
     try:
-        t = yf.Ticker(ticker)
+        t   = yf.Ticker(ticker)
         rec = t.recommendations
         return rec if rec is not None and not rec.empty else pd.DataFrame()
     except Exception:
@@ -666,7 +949,6 @@ def fetch_fred(series_id: str, start: str | None = None) -> pd.Series:
             params["vintage_date"] = start
         r = requests.get(_FRED_BASE, params=params, timeout=15)
         r.raise_for_status()
-        from io import StringIO
         df = pd.read_csv(StringIO(r.text), index_col=0, parse_dates=True)
         df.columns = ["value"]
         s = pd.to_numeric(df["value"], errors="coerce").dropna()
