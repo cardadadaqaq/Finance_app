@@ -26,6 +26,9 @@ from data_engine import (
     yf_financials, yf_options, yf_holders,
     yf_recommendations, yf_earnings_dates,
     fetch_fred, FRED_SERIES,
+    load_screener_master_data,
+    apply_screener_filters,
+    SCREENER_UNIVERSE_FULL,
 )
 from quant_engine import (
     DCFInputs, DCFResult, WACCInputs,
@@ -36,9 +39,10 @@ from quant_engine import (
 )
 from ui_components import (
     GLOBAL_CSS, COLORS,
-    navy_grid, pla, xaxis_time, yaxis_plain,
+    navy_grid, screener_aggrid, render_screener_filter_panel,
+    pla, xaxis_time, yaxis_plain,
     build_candle_chart,
-    ptitle, sec, alert, badge, interrupted, colored,
+    ptitle, sec, alert, badge, interrupted, colored, status_badge,
 )
 
 # ══════════════════════════════════════════════════════════
@@ -55,15 +59,15 @@ st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════
 #  SESSION STATE
 # ══════════════════════════════════════════════════════════
-_NOT_RUN = "__NOT_RUN__"
 _DEFAULTS = dict(
-    page="Market Overview",
-    screener_selected=None,
-    screener_results=_NOT_RUN,
-    terminal_ticker="NVDA",
-    terminal_peers="AMD,INTC,AVGO,QCOM,SMCI",
-    watchlist=["AAPL","NVDA","ASML.AS","ENI.MI","MC.PA","RACE.MI","MSFT","AMZN"],
-    alerts=[],
+    page                   = "Market Overview",
+    screener_df            = None,
+    screener_source        = None,
+    screener_selected      = None,
+    terminal_ticker        = "NVDA",
+    terminal_peers         = "AMD,INTC,AVGO,QCOM,SMCI",
+    watchlist              = ["AAPL","NVDA","ASML.AS","ENI.MI","MC.PA","RACE.MI","MSFT","AMZN"],
+    alerts                 = [],
 )
 for k, v in _DEFAULTS.items():
     if k not in st.session_state:
@@ -102,32 +106,6 @@ SC_MAP = {
     "Consumer Cyclical":{"sup":["OEM Asia","Raw materials"],            "cust":["Consumers","E-commerce","Retail"],          "note":"Correlated to consumer credit cycle. EV transition reshaping auto chains."},
 }
 
-SCREENER_UNIVERSE = list(dict.fromkeys([
-    "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AVGO","JPM","V",
-    "UNH","XOM","JNJ","PG","MA","HD","ABBV","MRK","CVX","PEP","KO","LIN",
-    "TMO","DHR","AMD","INTC","QCOM","TXN","AMAT","LRCX","MU","ORCL","IBM",
-    "CSCO","DELL","ACN","NOW","CRM","ADBE","PANW","FTNT","CRWD","ZS","SNPS",
-    "CDNS","INTU","NFLX","SPOT","UBER","ABNB","BKNG","SNOW","PLTR","COIN",
-    "ARM","SMCI","MRVL","KLAC","MPWR","DDOG","MDB","NET","HUBS","TTD","ROKU",
-    "BAC","WFC","GS","MS","BLK","SCHW","C","AXP","COF","BX","KKR","APO",
-    "LLY","PFE","BMY","AMGN","GILD","REGN","VRTX","BIIB","MRNA","NVAX",
-    "COST","WMT","TGT","DG","NKE","LULU","MCD","SBUX","CMG","DPZ","YUM",
-    "GE","HON","MMM","EMR","ETN","PH","ROK","BA","RTX","LMT","NOC","GD","CAT",
-    "DE","UPS","FDX","XOM","CVX","COP","EOG","OXY","SLB","HAL","BKR","LNG",
-    "NEE","DUK","SO","AEP","AMT","PLD","EQIX","CCI","SPG","O","WELL","DLR",
-    "NEM","GOLD","FCX","ALB","SQM","DD","DOW","LYB","NUE","STLD","APD","SHW",
-    "DIS","CMCSA","WBD","EA","TTWO","DKNG","MGM","WYNN","LVS",
-    "ASML.AS","SAP.DE","BAYN.DE","BMW.DE","MBG.DE","ALV.DE","SIE.DE","IFX.DE",
-    "MC.PA","TTE.PA","SAN.PA","BNP.PA","AXA.PA","OR.PA","AIR.PA","SU.PA",
-    "HSBA.L","BP.L","SHEL.L","AZN.L","GSK.L","ULVR.L","RIO.L","BARC.L",
-    "NESN.SW","ROG.SW","NOVN.SW","ABB.SW","UBS.SW","CFR.SW",
-    "ENI.MI","ENEL.MI","UCG.MI","ISP.MI","STLAM.MI","RACE.MI","ATL.MI",
-    "ITX.MC","SAN.MC","BBVA.MC","REP.MC","TEF.MC",
-    "EQNR.OL","NOVO-B.CO","DSV.CO","MAERSK-B.CO",
-    "SONY","TM","HMC","MUFG","TSM","BABA","JD","PDD","BIDU","NIO",
-    "INFY","WIT","HDB","SHOP","RY","TD","BNS","ENB","CNQ",
-    "BTC-USD","ETH-USD","SOL-USD",
-]))
 
 # ══════════════════════════════════════════════════════════
 #  SIDEBAR NAVIGATION
@@ -167,7 +145,7 @@ with st.sidebar:
     <div style='margin-top:2rem;padding:0 0.5rem'>
       <div style='height:1px;background:linear-gradient(90deg,transparent,#0D2137,transparent);margin-bottom:0.7rem'></div>
       <div style='font-family:IBM Plex Mono,monospace;font-size:0.46rem;color:#1A3A5C;text-align:center;letter-spacing:0.14em;line-height:2'>
-        SEC EDGAR · FRED · OPENBB · YFINANCE<br>
+        FINVIZ · FRED · YFINANCE · AGGRID<br>
         NAVY TERMINAL PRO v6.0 · ⚓
       </div>
     </div>""", unsafe_allow_html=True)
@@ -230,7 +208,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # KPI rows
     kpis1 = [
         ("P/E Fwd",   f"{inf['forwardPE']:.1f}"                    if inf.get("forwardPE")            else "N/A"),
         ("P/E TTM",   f"{inf['trailingPE']:.1f}"                   if inf.get("trailingPE")           else "N/A"),
@@ -266,7 +243,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         "👥 Peers","🏦 Holders","📰 News & Rec","⛓️ Supply Chain",
     ])
 
-    # ── Overview
     with t1:
         c1, c2 = st.columns([3, 2])
         with c1:
@@ -289,18 +265,16 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                 (r1 if i % 2 == 0 else r2).metric(lb, v)
             sec("GROWTH")
             g1, g2 = st.columns(2)
-            g1.metric("Rev Growth",  f"{inf.get('revenueGrowth',0)*100:.1f}%"           if inf.get("revenueGrowth")            else "N/A")
-            g2.metric("Earn Growth", f"{inf.get('earningsGrowth',0)*100:.1f}%"          if inf.get("earningsGrowth")           else "N/A")
+            g1.metric("Rev Growth",  f"{inf.get('revenueGrowth',0)*100:.1f}%"   if inf.get("revenueGrowth")  else "N/A")
+            g2.metric("Earn Growth", f"{inf.get('earningsGrowth',0)*100:.1f}%"  if inf.get("earningsGrowth") else "N/A")
             g1.metric("Rev/Share",   str(inf.get("revenuePerShare", "N/A")))
             g2.metric("Book/Share",  f"{inf.get('bookValue','N/A')}")
 
-    # ── Deep Financials (SEC/OpenBB/yFinance)
     with t2:
         src_label = engine.data_source
         sec(f"DEEP FINANCIALS  {_source_badge(src_label)}")
         with st.spinner(f"Fetching multi-decade data via {src_label}…"):
             deep = engine.deep_financials()
-
         if deep:
             fin_labels = list(deep.keys())
             sel_metrics = st.multiselect(
@@ -323,7 +297,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                     "xaxis": xaxis_time(), "yaxis": yaxis_plain("$ Value"),
                 }))
                 st.plotly_chart(fig_fin, use_container_width=True)
-
             sec("ANNUAL TABLE")
             rows_t: list[dict] = []
             for label_f, s in deep.items():
@@ -336,26 +309,24 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
             if rows_t:
                 navy_grid(pd.DataFrame(rows_t).set_index("Metric"), height=400, key=f"df_{ticker}")
         else:
-            # Fallback: yfinance quarterly table
             yf_fin = yf_financials(ticker)
             if yf_fin:
                 mode_f = st.radio("Period:", ["Annual","Quarterly"], horizontal=True, key=f"fm_{ticker}")
                 sfx    = "_a" if mode_f == "Annual" else "_q"
-                for tab_w, key in zip(st.tabs(["Income","Balance","Cash Flow"]), ["income","balance","cashflow"]):
+                for tab_w, key_f in zip(st.tabs(["Income","Balance","Cash Flow"]), ["income","balance","cashflow"]):
                     with tab_w:
-                        df_f = yf_fin.get(key + sfx, pd.DataFrame())
+                        df_f = yf_fin.get(key_f + sfx, pd.DataFrame())
                         if not df_f.empty:
                             df_d = df_f.copy()
                             df_d.columns = [str(c)[:10] for c in df_d.columns]
                             for col in df_d.columns:
                                 df_d[col] = df_d[col].apply(fmt_bn)
-                            navy_grid(df_d, height=400, key=f"{key}{sfx}{ticker}")
+                            navy_grid(df_d, height=400, key=f"{key_f}{sfx}{ticker}")
                         else:
                             interrupted("Financial data unavailable for this sheet.")
             else:
                 interrupted("No financial data returned from any source.")
 
-    # ── Performance
     with t3:
         p_map = {"1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y","2Y":"2y","5Y":"5y","10Y":"10y","MAX":"max"}
         p_lbl = st.select_slider("Period:", list(p_map.keys()), value="1Y", key=f"pp_{ticker}")
@@ -386,7 +357,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         else:
             interrupted(f"No price history for {ticker}")
 
-    # ── Peers
     with t4:
         pk = f"peers_{ticker}"
         if pk not in st.session_state:
@@ -394,7 +364,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         p_in = st.text_input("Peers (comma separated)", value=st.session_state[pk], key=f"pi_{ticker}")
         st.session_state[pk] = p_in
         p_list = [ticker] + [x.strip().upper() for x in p_in.split(",") if x.strip()]
-
         rows_p: list[dict] = []
         prg = st.progress(0)
         for ix, p in enumerate(p_list):
@@ -405,28 +374,27 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                 continue
             pr = pi.get("currentPrice") or pi.get("regularMarketPrice") or pi.get("previousClose") or 0
             rows_p.append({
-                "Ticker":   p,
-                "Price":    f"{pr:,.2f}"                                                  if pr                                         else "N/A",
-                "P/E":      f"{pi.get('forwardPE'):.1f}"                                 if pi.get("forwardPE")                        else "N/A",
-                "P/B":      f"{pi.get('priceToBook'):.2f}"                               if pi.get("priceToBook")                      else "N/A",
-                "P/S":      f"{pi.get('priceToSalesTrailing12Months'):.2f}"              if pi.get("priceToSalesTrailing12Months")      else "N/A",
-                "EV/EBITDA":f"{pi.get('enterpriseToEbitda'):.1f}"                        if pi.get("enterpriseToEbitda")               else "N/A",
-                "Beta":     f"{pi.get('beta'):.2f}"                                      if pi.get("beta")                             else "N/A",
-                "Cap$B":    f"{pi.get('marketCap',0)/1e9:.1f}"                           if pi.get("marketCap")                        else "N/A",
-                "Div%":     f"{(pi.get('dividendYield') or 0)*100:.2f}%",
-                "ROE%":     f"{pi.get('returnOnEquity',0)*100:.1f}"                      if pi.get("returnOnEquity")                   else "N/A",
-                "OpMgn%":   f"{pi.get('operatingMargins',0)*100:.1f}"                    if pi.get("operatingMargins")                 else "N/A",
-                "Rev$B":    f"{pi.get('totalRevenue',0)/1e9:.1f}"                        if pi.get("totalRevenue")                     else "N/A",
-                "FCF$B":    f"{pi.get('freeCashflow',0)/1e9:.1f}"                        if pi.get("freeCashflow")                     else "N/A",
+                "Ticker":    p,
+                "Price":     f"{pr:,.2f}"                                             if pr                                         else "N/A",
+                "P/E":       f"{pi.get('forwardPE'):.1f}"                            if pi.get("forwardPE")                        else "N/A",
+                "P/B":       f"{pi.get('priceToBook'):.2f}"                          if pi.get("priceToBook")                      else "N/A",
+                "P/S":       f"{pi.get('priceToSalesTrailing12Months'):.2f}"         if pi.get("priceToSalesTrailing12Months")      else "N/A",
+                "EV/EBITDA": f"{pi.get('enterpriseToEbitda'):.1f}"                   if pi.get("enterpriseToEbitda")               else "N/A",
+                "Beta":      f"{pi.get('beta'):.2f}"                                 if pi.get("beta")                             else "N/A",
+                "Cap$B":     f"{pi.get('marketCap',0)/1e9:.1f}"                      if pi.get("marketCap")                        else "N/A",
+                "Div%":      f"{(pi.get('dividendYield') or 0)*100:.2f}%",
+                "ROE%":      f"{pi.get('returnOnEquity',0)*100:.1f}"                 if pi.get("returnOnEquity")                   else "N/A",
+                "OpMgn%":    f"{pi.get('operatingMargins',0)*100:.1f}"               if pi.get("operatingMargins")                 else "N/A",
+                "Rev$B":     f"{pi.get('totalRevenue',0)/1e9:.1f}"                   if pi.get("totalRevenue")                     else "N/A",
+                "FCF$B":     f"{pi.get('freeCashflow',0)/1e9:.1f}"                   if pi.get("freeCashflow")                     else "N/A",
             })
         prg.empty()
         if rows_p:
             navy_grid(pd.DataFrame(rows_p).set_index("Ticker"), height=300, key=f"ptbl_{ticker}")
-
         sec("RELATIVE PERFORMANCE 1Y")
         fr = {p: s for p in p_list for s in [yf_close(p, period="1y")] if not s.empty}
         if fr:
-            pn = ((pd.DataFrame(fr).dropna(how="all").ffill() / 1) - 0)
+            pn = pd.DataFrame(fr).dropna(how="all").ffill()
             pn = ((pn / pn.iloc[0]) - 1) * 100
             fig_pr = go.Figure()
             for ix, col in enumerate(pn.columns):
@@ -438,7 +406,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
             fig_pr.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":320}))
             st.plotly_chart(fig_pr, use_container_width=True)
 
-    # ── Holders
     with t5:
         ih = yf_holders(ticker)
         if not ih.empty:
@@ -451,7 +418,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
         oi3.metric("Insider Held", f"{inf.get('heldPercentInsiders',0)*100:.1f}%"                         if inf.get("heldPercentInsiders")     else "N/A")
         oi4.metric("Short Float",  f"{inf.get('shortPercentOfFloat',0)*100:.1f}%"                         if inf.get("shortPercentOfFloat")     else "N/A")
 
-    # ── News & Rec
     with t6:
         cn, cr = st.columns([3, 2])
         with cn:
@@ -491,7 +457,6 @@ def show_terminal(ticker: str, peers_str: str = "SPY,QQQ,IWM") -> None:
                     st.metric("Target", f"${inf['targetMeanPrice']:.2f}")
                     st.metric("Upside",f"{(inf['targetMeanPrice']/price-1)*100:.1f}%")
 
-    # ── Supply Chain
     with t7:
         sc = SC_MAP.get(sector)
         if sc:
@@ -589,11 +554,10 @@ if choice == "Market Overview":
             mv.append({"Ticker": tk, "Price": p, "Change%": c})
     prg_mv.empty()
     mv.sort(key=lambda x: x["Change%"], reverse=True)
-
     cg, cl = st.columns(2)
     for col_w, data, color, label in [
-        (cg, mv[:7],                                            "#2ECC71", "🟢 TOP GAINERS"),
-        (cl, sorted(mv, key=lambda x: x["Change%"])[:7],       "#E74C3C", "🔴 TOP LOSERS"),
+        (cg, mv[:7],                                         "#2ECC71", "🟢 TOP GAINERS"),
+        (cl, sorted(mv, key=lambda x: x["Change%"])[:7],    "#E74C3C", "🔴 TOP LOSERS"),
     ]:
         with col_w:
             st.markdown(f"<div class='sec-hdr' style='color:{color}'>{label}</div>", unsafe_allow_html=True)
@@ -670,7 +634,6 @@ elif choice == "Watchlist":
             fig_wl.add_hline(y=0, line_dash="dot", line_color="#1E4976")
             fig_wl.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":420,"title":f"Watchlist Performance — {h_lbl}"}))
             st.plotly_chart(fig_wl, use_container_width=True)
-
             if len(fr) >= 2:
                 sec("CORRELATION MATRIX")
                 corr = d.pct_change().dropna().corr()
@@ -733,7 +696,6 @@ elif choice == "Charts & Technical":
         if not df_c.empty:
             fig_c = build_candle_chart(tkr_c, df_c, sel_ind, f"{chart_per} · {chart_int}")
             st.plotly_chart(fig_c, use_container_width=True)
-
             sec("PRICE STATISTICS")
             dr_c     = df_c["Close"].pct_change().dropna()
             rsi_val  = rsi(df_c["Close"]).iloc[-1] if len(df_c) > 14 else None
@@ -747,7 +709,6 @@ elif choice == "Charts & Technical":
             ps[5].metric("Ann. Vol", f"{dr_c.std()*np.sqrt(252)*100:.1f}%")
             ps[6].metric("ATR(14)",  f"{atr_val:,.2f}" if atr_val else "—")
             ps[7].metric("RSI(14)",  f"{rsi_val:.1f}"  if rsi_val else "—")
-
             sec("FIBONACCI RETRACEMENT LEVELS")
             fib_levels = fibonacci(df_c)
             fc7 = st.columns(7)
@@ -776,7 +737,7 @@ elif choice == "DCF Valuation":
                 eng_dcf = UnifiedMarketDataEngine(af_tkr.strip().upper())
                 af_inf  = eng_dcf.info()
                 if af_inf:
-                    af_fcf   = af_inf.get("freeCashflow",    1_000_000_000) or 1_000_000_000
+                    af_fcf   = af_inf.get("freeCashflow",     1_000_000_000) or 1_000_000_000
                     af_shr   = af_inf.get("sharesOutstanding",1_000_000_000) or 1_000_000_000
                     af_nd    = (af_inf.get("totalDebt",0) or 0) - (af_inf.get("totalCash",0) or 0)
                     af_eg    = min(max((af_inf.get("earningsGrowth",0.10) or 0.10), 0.01), 0.60)
@@ -810,7 +771,7 @@ elif choice == "DCF Valuation":
             ex_m, last_eb = 12.0, 0
             if tv_m == "exit_multiple":
                 ex_m    = st.slider("Exit EV/EBITDA Multiple", 5.0, 30.0, 12.0)
-                last_eb = st.number_input("Last EBITDA ($)",   value=0, step=100_000_000, format="%d")
+                last_eb = st.number_input("Last EBITDA ($)", value=0, step=100_000_000, format="%d")
 
         dcf_inp = DCFInputs(
             base_fcf=float(fcf), wacc=wacc/100, g1=g1/100, g2=g2/100, tg=tg/100,
@@ -831,13 +792,11 @@ elif choice == "DCF Valuation":
                 r5,r6 = st.columns(2)
                 r5.metric("PV FCF (all stages)",fmt_bn(res.pv_s1 + res.pv_s2))
                 r6.metric("PV Terminal Value",  fmt_bn(res.pv_tv))
-
                 if af_price and mode_dcf == "Auto-fill from Ticker":
                     margin = (res.fair_value / af_price - 1) * 100
                     mc1, mc2 = st.columns(2)
                     mc1.metric("Current Price",    f"${af_price:,.2f}")
                     mc2.metric("Margin of Safety", f"{margin:+.1f}%")
-
                 all_cfs   = res.fcfs_s1 + res.fcfs_s2
                 yr_labels = [f"Y{i+1}" for i in range(len(all_cfs))]
                 bar_cols  = (["#F5A623"] * n1) + (["#3B8EF0"] * n2)
@@ -869,7 +828,6 @@ elif choice == "DCF Valuation":
             erp_w = st.slider("Equity Risk Premium (%)",  2.0,  8.0, 5.5, step=0.1)
             kd_w  = st.slider("Pre-tax Cost of Debt (%)", 1.0, 12.0, 4.5, step=0.1)
             tax_w = st.slider("Effective Tax Rate (%)",   5.0, 35.0, 21.0,step=0.5)
-
         wres = compute_wacc(WACCInputs(
             equity_value=float(mc_val), debt_value=float(dbt_val),
             beta=beta_w, risk_free_rate=rf_w/100, market_risk_premium=erp_w/100,
@@ -895,10 +853,10 @@ elif choice == "DCF Valuation":
                 nd_r    = (ri.get("totalDebt",0) or 0) - (ri.get("totalCash",0) or 0)
                 mkt_ev  = mkt_cap + nd_r
                 fcf_r   = ri.get("freeCashflow",0) or 0
-                wacc_r  = st.slider("WACC (%)",            4,20,9,  key="rev_wacc") / 100
-                tg_r    = st.slider("Terminal Growth (%)", 0, 5, 2, key="rev_tg")   / 100
-                n1_r    = st.slider("Stage 1 Years",       3,10, 5, key="rev_n1")
-                n2_r    = st.slider("Stage 2 Years",       3,10, 5, key="rev_n2")
+                wacc_r  = st.slider("WACC (%)", 4,20,9, key="rev_wacc") / 100
+                tg_r    = st.slider("Terminal Growth (%)", 0, 5, 2, key="rev_tg") / 100
+                n1_r    = st.slider("Stage 1 Years", 3,10,5, key="rev_n1")
+                n2_r    = st.slider("Stage 2 Years", 3,10,5, key="rev_n2")
                 rm1,rm2,rm3 = st.columns(3)
                 rm1.metric("Market Cap",       fmt_bn(mkt_cap))
                 rm2.metric("FCF (TTM)",        fmt_bn(fcf_r))
@@ -935,7 +893,6 @@ elif choice == "DCF Valuation":
             mc_n   = st.select_slider("Simulations",[500,1000,5000,10000],value=1000,key="mc_n")
         mc_shr = st.number_input("Shares",   value=1_000_000_000, step=10_000_000,  format="%d",key="mc_shr")
         mc_nd  = st.number_input("Net Debt", value=0,             step=100_000_000, format="%d",key="mc_nd")
-
         if st.button("▶ RUN MONTE CARLO", use_container_width=True):
             with st.spinner(f"Running {mc_n:,} DCF simulations…"):
                 fvs = monte_carlo_dcf(
@@ -995,7 +952,6 @@ elif choice == "Multi-Compare":
                 fig_r.add_hline(y=0, line_dash="dot", line_color="#1E4976")
                 fig_r.update_layout(**pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":460,"title":f"Normalised Returns — {h_lbl}"}))
                 st.plotly_chart(fig_r, use_container_width=True)
-
                 dr = d.pct_change().dropna()
                 ay = max((d.index[-1]-d.index[0]).days/365.25, 0.1)
                 stats = []
@@ -1008,7 +964,6 @@ elif choice == "Multi-Compare":
                                   "Ann.Vol":f"{vl_v:.1f}%","Sharpe":f"{cg_v/vl_v:.2f}" if vl_v>0 else "N/A",
                                   "Max DD":f"{dd_v:.1f}%","Years":f"{ay:.1f}"})
                 navy_grid(pd.DataFrame(stats).set_index("Ticker"), height=260, key="cmp_stats")
-
                 if len(fr) >= 2:
                     sec("CORRELATION MATRIX")
                     cr = dr.corr()
@@ -1027,16 +982,16 @@ elif choice == "Multi-Compare":
                 inf_f = yf_info(tkr_f)
                 if not inf_f: continue
                 snap.append({"Ticker":tkr_f,
-                    "P/E TTM":    f"{inf_f.get('trailingPE'):.1f}"                         if inf_f.get("trailingPE")                       else "N/A",
-                    "P/E Fwd":    f"{inf_f.get('forwardPE'):.1f}"                          if inf_f.get("forwardPE")                        else "N/A",
-                    "P/B":        f"{inf_f.get('priceToBook'):.2f}"                        if inf_f.get("priceToBook")                      else "N/A",
-                    "P/S":        f"{inf_f.get('priceToSalesTrailing12Months'):.1f}"       if inf_f.get("priceToSalesTrailing12Months")      else "N/A",
-                    "EV/EBITDA":  f"{inf_f.get('enterpriseToEbitda'):.1f}"                 if inf_f.get("enterpriseToEbitda")               else "N/A",
-                    "Rev $B":     f"{inf_f.get('totalRevenue',0)/1e9:.1f}"                 if inf_f.get("totalRevenue")                     else "N/A",
-                    "FCF $B":     f"{inf_f.get('freeCashflow',0)/1e9:.1f}"                 if inf_f.get("freeCashflow")                     else "N/A",
-                    "ROE %":      f"{inf_f.get('returnOnEquity',0)*100:.1f}"               if inf_f.get("returnOnEquity")                   else "N/A",
-                    "Op.Mgn %":   f"{inf_f.get('operatingMargins',0)*100:.1f}"             if inf_f.get("operatingMargins")                 else "N/A",
-                    "Beta":       f"{inf_f.get('beta'):.2f}"                               if inf_f.get("beta")                             else "N/A",
+                    "P/E TTM":  f"{inf_f.get('trailingPE'):.1f}"                        if inf_f.get("trailingPE")                       else "N/A",
+                    "P/E Fwd":  f"{inf_f.get('forwardPE'):.1f}"                         if inf_f.get("forwardPE")                        else "N/A",
+                    "P/B":      f"{inf_f.get('priceToBook'):.2f}"                       if inf_f.get("priceToBook")                      else "N/A",
+                    "P/S":      f"{inf_f.get('priceToSalesTrailing12Months'):.1f}"      if inf_f.get("priceToSalesTrailing12Months")      else "N/A",
+                    "EV/EBITDA":f"{inf_f.get('enterpriseToEbitda'):.1f}"                if inf_f.get("enterpriseToEbitda")               else "N/A",
+                    "Rev $B":   f"{inf_f.get('totalRevenue',0)/1e9:.1f}"                if inf_f.get("totalRevenue")                     else "N/A",
+                    "FCF $B":   f"{inf_f.get('freeCashflow',0)/1e9:.1f}"                if inf_f.get("freeCashflow")                     else "N/A",
+                    "ROE %":    f"{inf_f.get('returnOnEquity',0)*100:.1f}"              if inf_f.get("returnOnEquity")                   else "N/A",
+                    "Op.Mgn %": f"{inf_f.get('operatingMargins',0)*100:.1f}"            if inf_f.get("operatingMargins")                 else "N/A",
+                    "Beta":     f"{inf_f.get('beta'):.2f}"                              if inf_f.get("beta")                             else "N/A",
                 })
             if snap:
                 navy_grid(pd.DataFrame(snap).set_index("Ticker"), height=300, key="fund_grid")
@@ -1050,21 +1005,21 @@ elif choice == "Multi-Compare":
         if rm_list:
             fr_r = {t: s for t in rm_list for s in [yf_close(t, period=rm_per)] if not s.empty}
             if fr_r:
-                d_r = pd.DataFrame(fr_r).dropna(how="all").ffill()
-                dr_r= d_r.pct_change().dropna()
-                ay_r= max((d_r.index[-1]-d_r.index[0]).days/365.25, 0.1)
+                d_r  = pd.DataFrame(fr_r).dropna(how="all").ffill()
+                dr_r = d_r.pct_change().dropna()
+                ay_r = max((d_r.index[-1]-d_r.index[0]).days/365.25, 0.1)
                 rows_rm = []
                 for col in dr_r.columns:
-                    tr_rv   = float((d_r[col].iloc[-1]/d_r[col].iloc[0]-1)*100)
-                    ann_rv  = float(((1+tr_rv/100)**(1/ay_r)-1)*100)
-                    vl_rv   = float(dr_r[col].std()*np.sqrt(252)*100)
-                    dd_rv   = float(((d_r[col]/d_r[col].cummax())-1).min()*100)
-                    sh_rv   = (ann_rv/100-rf_rm)/(vl_rv/100) if vl_rv>0 else float("nan")
-                    neg_rv  = dr_r[col][dr_r[col]<rf_rm/252]
-                    dv_rv   = float(neg_rv.std()*np.sqrt(252)) if len(neg_rv)>1 else 0
-                    so_rv   = (ann_rv/100-rf_rm)/dv_rv if dv_rv>0 else float("nan")
-                    ca_rv   = ann_rv/abs(dd_rv) if dd_rv<0 else float("nan")
-                    var_rv  = float(np.percentile(dr_r[col].values,5)*100)
+                    tr_rv  = float((d_r[col].iloc[-1]/d_r[col].iloc[0]-1)*100)
+                    ann_rv = float(((1+tr_rv/100)**(1/ay_r)-1)*100)
+                    vl_rv  = float(dr_r[col].std()*np.sqrt(252)*100)
+                    dd_rv  = float(((d_r[col]/d_r[col].cummax())-1).min()*100)
+                    sh_rv  = (ann_rv/100-rf_rm)/(vl_rv/100) if vl_rv>0 else float("nan")
+                    neg_rv = dr_r[col][dr_r[col]<rf_rm/252]
+                    dv_rv  = float(neg_rv.std()*np.sqrt(252)) if len(neg_rv)>1 else 0
+                    so_rv  = (ann_rv/100-rf_rm)/dv_rv if dv_rv>0 else float("nan")
+                    ca_rv  = ann_rv/abs(dd_rv) if dd_rv<0 else float("nan")
+                    var_rv = float(np.percentile(dr_r[col].values,5)*100)
                     rows_rm.append({"Ticker":col,"CAGR":f"{ann_rv:+.2f}%","Ann.Vol":f"{vl_rv:.1f}%",
                                     "MaxDD":f"{dd_rv:.1f}%","Sharpe":f"{sh_rv:.2f}" if not math.isnan(sh_rv) else "N/A",
                                     "Sortino":f"{so_rv:.2f}" if not math.isnan(so_rv) else "N/A",
@@ -1108,10 +1063,10 @@ elif choice == "Portfolio Backtest":
         BENCH_MAP = {"S&P 500 (^GSPC)":"^GSPC","Nasdaq (^IXIC)":"^IXIC","MSCI World (VWCE.DE)":"VWCE.DE","Custom 60/40":None}
         bench_lbl = st.selectbox("Benchmark", list(BENCH_MAP.keys()))
         bench_tkr = BENCH_MAP[bench_lbl]
-    with p2: years   = st.slider("Horizon (years)", 1, 30, 10, key="bt_yrs")
-    with p3: rf_bt   = st.slider("Risk-free (%)", 0.0, 7.0, 4.2, step=0.1)
-    with p4: rebal   = st.selectbox("Rebalancing",["none","M","Q","A"],
-                                    format_func=lambda x:{"none":"None","M":"Monthly","Q":"Quarterly","A":"Annually"}[x])
+    with p2: years  = st.slider("Horizon (years)", 1, 30, 10, key="bt_yrs")
+    with p3: rf_bt  = st.slider("Risk-free (%)", 0.0, 7.0, 4.2, step=0.1)
+    with p4: rebal  = st.selectbox("Rebalancing",["none","M","Q","A"],
+                                   format_func=lambda x:{"none":"None","M":"Monthly","Q":"Quarterly","A":"Annually"}[x])
 
     if bench_tkr is None:
         bc1,bc2 = st.columns(2)
@@ -1145,7 +1100,6 @@ elif choice == "Portfolio Backtest":
                     bench_series = (a_b.iloc[:,0]*0.6 + a_b.iloc[:,1]*0.4).rename("60/40")
                 elif not b_eq.empty:
                     bench_series = b_eq
-
             if not frames:
                 st.error("No valid asset data.")
                 st.stop()
@@ -1259,15 +1213,15 @@ elif choice == "Portfolio Backtest":
         sec("RISK DIAGNOSTICS")
         tips: list[str] = []
         if not math.isnan(bt.sharpe):
-            if bt.sharpe < 0:   tips.append(f"🔴 <b>Negative Sharpe ({bt.sharpe:.2f})</b> — return below risk-free. Identify and replace worst contributor.")
-            elif bt.sharpe<0.5: tips.append(f"🟡 <b>Low Sharpe ({bt.sharpe:.2f})</b> — add uncorrelated assets: GLD, TLT, REITs.")
-            elif bt.sharpe>=1.5:tips.append(f"🏆 <b>High Sharpe ({bt.sharpe:.2f})</b> — excellent. Verify over longer period to rule out in-sample bias.")
-            else:               tips.append(f"✅ <b>Acceptable Sharpe ({bt.sharpe:.2f})</b> — target >1.0 for consistent alpha.")
-        if bt.ann_vol > 25:  tips.append(f"⚡ <b>High Volatility ({bt.ann_vol:.1f}%)</b> — reduce equity concentration; add 15-25% bonds.")
-        if bt.max_dd < -40:  tips.append(f"💥 <b>Extreme Drawdown ({bt.max_dd:.1f}%)</b> — consider volatility targeting or Kelly sizing.")
-        if bt.var95  < -3:   tips.append(f"📉 <b>High VaR95 ({bt.var95:.2f}%/day)</b> — 1-in-20 days risks >{abs(bt.var95):.1f}% loss.")
-        if len(valid)< 4:    tips.append(f"🔀 <b>Low Diversification ({len(valid)} assets)</b> — 8-15 uncorrelated assets is optimal.")
-        if not tips:         tips.append("ℹ️ Parameters within normal bounds. No critical signals detected.")
+            if bt.sharpe < 0:    tips.append(f"🔴 <b>Negative Sharpe ({bt.sharpe:.2f})</b> — return below risk-free.")
+            elif bt.sharpe < 0.5:tips.append(f"🟡 <b>Low Sharpe ({bt.sharpe:.2f})</b> — add uncorrelated assets: GLD, TLT, REITs.")
+            elif bt.sharpe >= 1.5:tips.append(f"🏆 <b>High Sharpe ({bt.sharpe:.2f})</b> — excellent. Verify over longer period.")
+            else:                 tips.append(f"✅ <b>Acceptable Sharpe ({bt.sharpe:.2f})</b> — target >1.0 for consistent alpha.")
+        if bt.ann_vol > 25:  tips.append(f"⚡ <b>High Volatility ({bt.ann_vol:.1f}%)</b> — reduce equity concentration.")
+        if bt.max_dd < -40:  tips.append(f"💥 <b>Extreme Drawdown ({bt.max_dd:.1f}%)</b> — consider volatility targeting.")
+        if bt.var95  < -3:   tips.append(f"📉 <b>High VaR95 ({bt.var95:.2f}%/day)</b>.")
+        if len(valid) < 4:   tips.append(f"🔀 <b>Low Diversification ({len(valid)} assets)</b> — 8-15 uncorrelated assets optimal.")
+        if not tips:          tips.append("ℹ️ Parameters within normal bounds. No critical signals detected.")
         for tip in tips:
             alert(tip)
 
@@ -1276,150 +1230,214 @@ elif choice == "Portfolio Backtest":
 
 
 # ══════════════════════════════════════════════════════════
-#  PAGE: STOCK SCREENER
+#  PAGE: STOCK SCREENER  ← COMPLETELY OVERHAULED v6.0
 # ══════════════════════════════════════════════════════════
 elif choice == "Stock Screener":
+
+    # ── Sub-page: Company Terminal drill-down ─────────────
     if st.session_state.screener_selected:
         tgt = st.session_state.screener_selected
-        if st.columns([1,8])[0].button("← Back"):
+        back_col, _ = st.columns([1, 8])
+        if back_col.button("← Back to Screener"):
             st.session_state.screener_selected = None
             st.rerun()
         ptitle(f"TERMINAL — {tgt}")
         inf_s = yf_info(tgt)
         sec_s = inf_s.get("sector","") if inf_s else ""
         show_terminal(tgt, SECTOR_PEERS.get(sec_s,"SPY,QQQ,IWM"))
+        st.stop()
+
+    # ── Main Screener Page ────────────────────────────────
+    ptitle(
+        "INSTITUTIONAL STOCK SCREENER  v6.0",
+        "Finviz Primary Engine · yFinance Batch Fallback · 1,500+ Global Tickers · AgGrid",
+    )
+
+    # ── Data load controls ────────────────────────────────
+    ctrl_c1, ctrl_c2, ctrl_c3 = st.columns([2, 2, 3])
+    with ctrl_c1:
+        force_yf = st.checkbox("Force yFinance fallback", value=False, key="scr_force_yf",
+                               help="Bypass Finviz and use multi-threaded yFinance batch download")
+    with ctrl_c2:
+        reload_btn = st.button("🔄  Reload Data", use_container_width=True, key="scr_reload")
+    with ctrl_c3:
+        st.markdown(
+            "<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;color:#5A88B0;"
+            "padding-top:8px'>Finviz data cached 10 min · yFinance metadata via ThreadPoolExecutor(40)</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Load master data (cached) ─────────────────────────
+    needs_load = (
+        st.session_state.screener_df is None
+        or reload_btn
+    )
+
+    if needs_load:
+        with st.spinner("⬛ Loading screener data…  (Finviz → yFinance fallback)"):
+            df_master, src_label = load_screener_master_data(force_fallback=force_yf)
+        st.session_state.screener_df     = df_master
+        st.session_state.screener_source = src_label
+
+    df_master  = st.session_state.screener_df
+    src_label  = st.session_state.screener_source or "—"
+
+    # ── Source status bar ─────────────────────────────────
+    n_total = len(df_master) if df_master is not None else 0
+    src_col  = "#2ECC71" if "Finviz" in src_label else ("#F5A623" if "yFinance" in src_label else "#E74C3C")
+    st.markdown(
+        f"<div class='screener-stats-bar'>"
+        f"<span>SOURCE: <b style='color:{src_col}'>{src_label}</b></span>"
+        f"<span>UNIVERSE: <b>{n_total:,}</b> tickers loaded</span>"
+        f"<span style='color:#1A3A5C'>│</span>"
+        f"<span style='color:#5A88B0;font-size:0.60rem'>Filters applied in-memory · No additional requests fired</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Filter panel ──────────────────────────────────────
+    if df_master is not None and not df_master.empty:
+        sectors   = sorted(df_master["Sector"].dropna().unique().tolist())
+        countries = sorted(df_master["Country"].dropna().unique().tolist())
     else:
-        ptitle("STOCK SCREENER",f"Multi-factor filter across {len(SCREENER_UNIVERSE):,}+ global tickers")
+        sectors, countries = [], []
 
-        with st.expander("⚙ FUNDAMENTAL FILTERS", expanded=True):
-            c1,c2,c3,c4,c5 = st.columns(5)
-            with c1:
-                pe_max  = st.slider("P/E max",       0,300, 80)
-                pb_max  = st.slider("P/B max",        0, 50, 15)
-                ps_max  = st.slider("P/S max",        0, 60, 20)
-            with c2:
-                cap_min = st.slider("MktCap min $B",  0,500,  0)
-                cap_max = st.slider("MktCap max $B",  0,5000,5000)
-                de_max  = st.slider("D/E max",        0, 30, 20)
-            with c3:
-                mgn_min = st.slider("Op.Margin min %",-100,80,-100)
-                roe_min = st.slider("ROE min %",     -50,100,-50)
-                ev_max  = st.slider("EV/EBITDA max",  0,200,200)
-            with c4:
-                div_min  = st.slider("Div Yield min %",0.0,15.0,0.0,step=0.1)
-                beta_min = st.slider("Beta min",     -2.0,5.0,-2.0,step=0.1)
-                beta_max = st.slider("Beta max",     -2.0,10.0,10.0,step=0.1)
-            with c5:
-                sec_f    = st.selectbox("Sector",["All","Technology","Healthcare","Financials","Industrials","Consumer Defensive","Consumer Cyclical","Energy","Communication Services","Utilities","Real Estate","Basic Materials"])
-                country_f= st.selectbox("Country",["All","United States","Germany","France","United Kingdom","Switzerland","Italy","Japan","China","Canada","Australia"])
-                kw_f     = st.text_input("Business keyword","",placeholder="AI, cloud, defense…")
+    with st.expander("⚙  SCREENER FILTERS", expanded=True):
+        filter_vals = render_screener_filter_panel(sectors=sectors, countries=countries)
 
-        with st.expander("⚙ EXTRA FILTERS"):
-            c1p,c2p = st.columns(2)
-            with c1p:
-                rg_min = st.slider("Rev Growth min %",-100,200,-100,key="rg_min")
-                eg_min = st.slider("Earn Growth min%",-100,200,-100,key="eg_min")
-            with c2p:
-                extra_tickers = st.text_input("Add extra tickers","",placeholder="AMZN, TSLA …")
-                n_scan        = st.selectbox("Tickers to scan",["100 (fast)","300","500","1000","All"])
-                sort_by       = st.selectbox("Sort by",["Market Cap","P/E","EV/EBITDA","ROE %","Op.Margin %","Div Yield","Rev Growth"])
+    # ── Apply filters ─────────────────────────────────────
+    if df_master is not None and not df_master.empty:
+        df_filtered = apply_screener_filters(
+            df            = df_master,
+            sector        = filter_vals["sector"],
+            country       = filter_vals["country"],
+            keyword       = filter_vals["keyword"],
+            min_marketcap_b = filter_vals["min_marketcap_b"],
+            max_marketcap_b = filter_vals["max_marketcap_b"],
+            max_pe        = filter_vals["max_pe"],
+            min_pe        = filter_vals["min_pe"],
+            min_change_pct= filter_vals["min_change_pct"],
+            max_change_pct= filter_vals["max_change_pct"],
+        )
 
-        run_sc = st.button("▶  RUN SCREENING", use_container_width=True)
+        # ── Sort ──────────────────────────────────────────
+        sort_col = filter_vals["sort_col"]
+        sort_asc = filter_vals["sort_asc"]
+        if sort_col in df_filtered.columns:
+            df_filtered = df_filtered.sort_values(
+                sort_col,
+                ascending=sort_asc,
+                na_position="last",
+            ).reset_index(drop=True)
 
-        if run_sc:
-            universe = list(SCREENER_UNIVERSE)
-            if extra_tickers.strip():
-                universe = list(dict.fromkeys(universe + [x.strip().upper() for x in extra_tickers.split(",") if x.strip()]))
-            n_map = {"100 (fast)":100,"300":300,"500":500,"1000":1000,"All":len(universe)}
-            scan  = universe[:n_map.get(n_scan, 500)]
-            results: list[dict] = []
-            prg_sc = st.progress(0)
-            stat_sc = st.empty()
-            for i, tkr in enumerate(scan):
-                prg_sc.progress((i+1)/len(scan))
-                stat_sc.markdown(f"<div class='term-box' style='padding:0.35rem 0.8rem;margin:0'>⬛ Scanning: <b>{tkr}</b> ({i+1}/{len(scan)})</div>", unsafe_allow_html=True)
-                try:
-                    inf = yf_info(tkr)
-                    if not inf: continue
-                    pe   = inf.get("forwardPE")   or inf.get("trailingPE")
-                    pb   = inf.get("priceToBook")
-                    ps   = inf.get("priceToSalesTrailing12Months")
-                    mc_v = inf.get("marketCap")
-                    de   = inf.get("debtToEquity")
-                    om   = inf.get("operatingMargins")
-                    roe  = inf.get("returnOnEquity")
-                    eve  = inf.get("enterpriseToEbitda")
-                    dy   = (inf.get("dividendYield") or 0) * 100
-                    bt_v = inf.get("beta")
-                    sec_v= inf.get("sector","")
-                    cntry= inf.get("country","")
-                    pr   = inf.get("currentPrice") or inf.get("regularMarketPrice") or inf.get("previousClose")
-                    nm   = inf.get("shortName", tkr)
-                    rg   = inf.get("revenueGrowth")
-                    eg   = inf.get("earningsGrowth")
+        n_filtered = len(df_filtered)
+        n_total    = len(df_master)
 
-                    if sec_f != "All" and sec_v != sec_f: continue
-                    if country_f != "All" and cntry != country_f: continue
-                    if kw_f.strip():
-                        kw  = kw_f.strip().lower()
-                        txt = " ".join(filter(None,[inf.get("longBusinessSummary",""),inf.get("industry",""),inf.get("longName",""),sec_v])).lower()
-                        if kw not in txt: continue
-                    if pe  and pe   > pe_max:    continue
-                    if pb  and pb   > pb_max:    continue
-                    if ps  and ps   > ps_max:    continue
-                    if de  and de/100 > de_max:  continue
-                    if eve and eve  > ev_max:    continue
-                    if mc_v and mc_v/1e9 < cap_min: continue
-                    if mc_v and mc_v/1e9 > cap_max: continue
-                    if om  and om*100 < mgn_min: continue
-                    if roe and roe*100< roe_min: continue
-                    if dy < div_min: continue
-                    if bt_v is not None and bt_v < beta_min: continue
-                    if bt_v is not None and bt_v > beta_max: continue
-                    if rg is not None and rg*100 < rg_min: continue
-                    if eg is not None and eg*100 < eg_min: continue
+        # ── Results header ────────────────────────────────
+        pct_shown = n_filtered / n_total * 100 if n_total > 0 else 0
+        st.markdown(
+            f"<div class='screener-stats-bar' style='margin-top:0.5rem'>"
+            f"<span>RESULTS: <b style='color:#F5A623'>{n_filtered:,}</b> / {n_total:,} tickers "
+            f"(<b>{pct_shown:.1f}%</b>)</span>"
+            f"<span>SORT: <b>{sort_col}</b> {'↑ ASC' if sort_asc else '↓ DESC'}</span>"
+            f"<span>PAGE SIZE: <b>{filter_vals['page_size']}</b></span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-                    results.append({
-                        "Ticker":  tkr, "Name":  nm[:26], "Sector":sec_v[:18], "Country":cntry,
-                        "Price":   f"{pr:.2f}"     if pr  else "N/A",
-                        "P/E":     f"{pe:.1f}"     if pe  else "N/A",
-                        "P/B":     f"{pb:.1f}"     if pb  else "N/A",
-                        "P/S":     f"{ps:.1f}"     if ps  else "N/A",
-                        "EV/EBITDA":f"{eve:.1f}"   if eve else "N/A",
-                        "Op.Mgn%": f"{om*100:.1f}" if om  else "N/A",
-                        "ROE%":    f"{roe*100:.1f}" if roe else "N/A",
-                        "Div%":    f"{dy:.2f}",
-                        "Beta":    f"{bt_v:.2f}"   if bt_v else "N/A",
-                        "Cap$B":   f"{mc_v/1e9:.1f}" if mc_v else "N/A",
-                        "RevG%":   f"{rg*100:.1f}" if rg  else "N/A",
-                        "EarnG%":  f"{eg*100:.1f}" if eg  else "N/A",
-                        "_mc": mc_v/1e9 if mc_v else 0, "_pe":pe if pe else 999,
-                        "_ev":eve if eve else 999,       "_roe":roe*100 if roe else 0,
-                        "_mgn":om*100 if om else 0,      "_div":dy, "_rg":rg*100 if rg else 0,
-                    })
-                except Exception:
-                    continue
-            prg_sc.empty(); stat_sc.empty()
-            sm = {"Market Cap":("_mc",True),"P/E":("_pe",False),"EV/EBITDA":("_ev",False),
-                  "ROE %":("_roe",True),"Op.Margin %":("_mgn",True),"Div Yield":("_div",True),"Rev Growth":("_rg",True)}
-            sk, rv = sm.get(sort_by,("_mc",True))
-            results.sort(key=lambda x: x.get(sk,0), reverse=rv)
-            st.session_state.screener_results = results
+        # ── AgGrid render ─────────────────────────────────
+        grid_result = screener_aggrid(
+            df       = df_filtered,
+            height   = 580,
+            key      = "screener_main_grid",
+            page_size= filter_vals["page_size"],
+        )
 
-        if st.session_state.screener_results is _NOT_RUN:
-            pass
-        elif not st.session_state.screener_results:
-            st.warning("No companies matched your filters. Try broadening the criteria.")
-        else:
-            res = st.session_state.screener_results
-            st.success(f"✅  {len(res)} companies found")
-            dcols = ["Name","Sector","Country","Price","P/E","P/B","P/S","EV/EBITDA","Op.Mgn%","ROE%","Div%","RevG%","EarnG%","Beta","Cap$B"]
-            navy_grid(pd.DataFrame(res)[["Ticker"]+dcols].set_index("Ticker"), height=460, key="scr_grid")
-            sec("OPEN IN TERMINAL")
-            sel = st.selectbox("Select company", [f"{r['Ticker']} — {r['Name']}" for r in res])
-            if st.button("⌨  OPEN COMPANY TERMINAL", use_container_width=True):
-                st.session_state.screener_selected = sel.split(" — ")[0].strip()
+        # ── Sector distribution chart ─────────────────────
+        if n_filtered > 0:
+            st.markdown("---")
+            ch_left, ch_right = st.columns(2)
+
+            with ch_left:
+                sec("SECTOR DISTRIBUTION")
+                sect_counts = (
+                    df_filtered["Sector"]
+                    .value_counts()
+                    .head(12)
+                    .reset_index()
+                )
+                sect_counts.columns = ["Sector", "Count"]
+                fig_sec = go.Figure(go.Bar(
+                    x=sect_counts["Sector"],
+                    y=sect_counts["Count"],
+                    marker_color=[COLORS[i % len(COLORS)] for i in range(len(sect_counts))],
+                    opacity=0.85,
+                ))
+                fig_sec.update_layout(**pla({
+                    "height": 260,
+                    "xaxis": dict(tickangle=-30, tickfont=dict(size=9, color="#5A88B0")),
+                    "yaxis": yaxis_plain("Companies"),
+                }))
+                st.plotly_chart(fig_sec, use_container_width=True)
+
+            with ch_right:
+                sec("MARKET CAP DISTRIBUTION")
+                mc_vals = pd.to_numeric(df_filtered["MarketCap_B"], errors="coerce").dropna()
+                if not mc_vals.empty:
+                    fig_mc_hist = go.Figure(go.Histogram(
+                        x=mc_vals,
+                        nbinsx=40,
+                        marker_color="#3B8EF0",
+                        opacity=0.80,
+                    ))
+                    fig_mc_hist.update_layout(**pla({
+                        "height":  260,
+                        "xaxis": yaxis_plain("Market Cap ($B)"),
+                        "yaxis": yaxis_plain("Count"),
+                    }))
+                    st.plotly_chart(fig_mc_hist, use_container_width=True)
+
+        # ── Terminal drill-down selector ──────────────────
+        st.markdown("---")
+        sec("OPEN IN COMPANY TERMINAL")
+        if n_filtered > 0:
+            ticker_options = [
+                f"{row['Ticker']}  —  {row['Name']}"
+                for _, row in df_filtered.head(200).iterrows()
+            ]
+            sel_scr = st.selectbox("Select company to analyse", ticker_options, key="scr_sel_box")
+            if st.button("⌨  OPEN COMPANY TERMINAL", use_container_width=True, key="scr_open_btn"):
+                st.session_state.screener_selected = sel_scr.split("  —  ")[0].strip()
                 st.rerun()
+
+            # AgGrid row-click shortcut
+            if grid_result is not None:
+                try:
+                    selected_rows = grid_result.get("selected_rows", None)
+                    if selected_rows is not None:
+                        if hasattr(selected_rows, "empty"):
+                            # DataFrame
+                            if not selected_rows.empty and "Ticker" in selected_rows.columns:
+                                clicked_tkr = str(selected_rows.iloc[0]["Ticker"]).strip()
+                                if clicked_tkr:
+                                    st.session_state.screener_selected = clicked_tkr
+                                    st.rerun()
+                        elif isinstance(selected_rows, list) and len(selected_rows) > 0:
+                            clicked_tkr = str(selected_rows[0].get("Ticker", "")).strip()
+                            if clicked_tkr:
+                                st.session_state.screener_selected = clicked_tkr
+                                st.rerun()
+                except Exception:
+                    pass
+        else:
+            st.info("No companies match the current filters. Try broadening your criteria.")
+
+    else:
+        st.error(
+            "⚠ Could not load screener data. "
+            "Both Finviz and yFinance are unreachable. "
+            "Check your network connection and try again."
+        )
 
 
 # ══════════════════════════════════════════════════════════
@@ -1444,7 +1462,6 @@ elif choice == "Macro & FRED":
                 prev = float(s.iloc[-2]) if len(s)>1 else val
                 snap[lbl] = val
                 yc_cols[i].metric(f"{lbl} Yield", f"{val:.3f}%", f"{val-prev:+.3f}bps")
-
         if len(snap) >= 3:
             fig_yc = go.Figure()
             fig_yc.add_trace(go.Scatter(
@@ -1458,16 +1475,13 @@ elif choice == "Macro & FRED":
             fig_yc.update_layout(**pla({"height":300,"title":"US Treasury Yield Curve",
                                         "xaxis":yaxis_plain("Maturity"),"yaxis":yaxis_plain("Yield (%)")}))
             st.plotly_chart(fig_yc, use_container_width=True)
-
         sec("YIELD SPREAD HISTORY")
         ysp_per = st.selectbox("Period",["1y","3y","5y","10y","20y"],index=2,key="ysp_per")
         start_y = {"1y":"2023","3y":"2021","5y":"2019","10y":"2014","20y":"2004"}[ysp_per]
-
         s10 = fetch_fred("DGS10",  start=f"{start_y}-01-01")
         s2  = fetch_fred("DGS2",   start=f"{start_y}-01-01")
         s3m = fetch_fred("DGS3MO", start=f"{start_y}-01-01")
         ssp = fetch_fred("T10Y2Y", start=f"{start_y}-01-01")
-
         fig_sp = make_subplots(rows=2,cols=1,shared_xaxes=True,vertical_spacing=0.06,row_heights=[0.6,0.4])
         if not s10.empty: fig_sp.add_trace(go.Scatter(x=s10.index,y=s10,name="10Y",line=dict(color="#F5A623",width=1.5)),row=1,col=1)
         if not s2.empty:  fig_sp.add_trace(go.Scatter(x=s2.index, y=s2, name="2Y", line=dict(color="#3B8EF0",width=1.5)),row=1,col=1)
@@ -1550,7 +1564,6 @@ elif choice == "Macro & FRED":
                 st.metric(lbl_c, f"{val_c:.3f}%", f"{val_c-prev_c:+.3f}bps")
         fig_cr.update_layout(**pla({"height":320,"title":"Credit Spreads","xaxis":xaxis_time(),"yaxis":yaxis_plain("Spread %")}))
         st.plotly_chart(fig_cr, use_container_width=True)
-
         sec("MARKET RISK PROXIES")
         RISK_T = {"^VIX":"^VIX","^MOVE":"^MOVE","HYG":"HYG","LQD":"LQD","EEM":"EEM","DXY":"DX-Y.NYB"}
         rp = st.columns(3)
@@ -1571,7 +1584,6 @@ elif choice == "Macro & FRED":
                 st.metric(lbl_r, f"{float(s_r.iloc[-1]):.3f}%")
         fig_gr.update_layout(**pla({"height":300,"title":"Policy Rates","xaxis":xaxis_time(),"yaxis":yaxis_plain("Rate %")}))
         st.plotly_chart(fig_gr, use_container_width=True)
-
         sec("FX CROSS RATES")
         FX_G = {"EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X","AUD/USD":"AUDUSD=X","DXY":"DX-Y.NYB"}
         fx_c = st.columns(3)
@@ -1590,12 +1602,11 @@ elif choice == "Options & Derivatives":
     if opt_tkr.strip():
         tkr_o = opt_tkr.strip().upper()
         calls, puts, exps = yf_options(tkr_o)
-        if calls is None:
+        if calls is None or (isinstance(calls, pd.DataFrame) and calls.empty and not exps):
             interrupted(f"No options data for {tkr_o}.")
         else:
             inf_o = yf_info(tkr_o)
             cur_p = inf_o.get("currentPrice") or inf_o.get("regularMarketPrice") if inf_o else None
-
             sec("SELECT EXPIRATION")
             if exps:
                 exp_sel = st.selectbox("Expiration", exps)
@@ -1603,7 +1614,6 @@ elif choice == "Options & Derivatives":
                     ch = yf.Ticker(tkr_o).option_chain(exp_sel)
                     calls, puts = ch.calls, ch.puts
                 except Exception: pass
-
             m1,m2,m3 = st.columns(3)
             if cur_p: m1.metric("Spot Price", f"${cur_p:,.2f}")
             if not calls.empty and "openInterest" in calls.columns: m2.metric("Call OI",f"{calls['openInterest'].sum():,.0f}")
@@ -1611,10 +1621,8 @@ elif choice == "Options & Derivatives":
             if not calls.empty and not puts.empty and "openInterest" in calls.columns and "openInterest" in puts.columns:
                 pc = puts["openInterest"].sum() / max(calls["openInterest"].sum(),1)
                 m1.metric("Put/Call Ratio", f"{pc:.2f}")
-
             t_ca, t_pu, t_iv, t_oi = st.tabs(["📈 Calls","📉 Puts","📊 IV Smile","📦 OI Distribution"])
             _DISP = ["strike","lastPrice","bid","ask","volume","openInterest","impliedVolatility","inTheMoney"]
-
             with t_ca:
                 if not calls.empty:
                     dc = [c for c in _DISP if c in calls.columns]
@@ -1626,7 +1634,6 @@ elif choice == "Options & Derivatives":
                         df_c.drop(columns=["impliedVolatility"],inplace=True)
                     navy_grid(df_c.reset_index(drop=True), height=360, key="calls_g")
                 else: interrupted("Call chain unavailable.")
-
             with t_pu:
                 if not puts.empty:
                     dp = [c for c in _DISP if c in puts.columns]
@@ -1638,7 +1645,6 @@ elif choice == "Options & Derivatives":
                         df_p.drop(columns=["impliedVolatility"],inplace=True)
                     navy_grid(df_p.reset_index(drop=True), height=360, key="puts_g")
                 else: interrupted("Put chain unavailable.")
-
             with t_iv:
                 if not calls.empty and "impliedVolatility" in calls.columns and "strike" in calls.columns:
                     iv_c = calls[["strike","impliedVolatility"]].dropna()
@@ -1659,7 +1665,6 @@ elif choice == "Options & Derivatives":
                                                "xaxis":yaxis_plain("Strike ($)"),"yaxis":yaxis_plain("IV (%)")}))
                     st.plotly_chart(fig_iv, use_container_width=True)
                 else: interrupted("IV data unavailable.")
-
             with t_oi:
                 if not calls.empty and not puts.empty and "openInterest" in calls.columns and "openInterest" in puts.columns:
                     oi_c = calls[["strike","openInterest"]].dropna().rename(columns={"openInterest":"Call OI"})
