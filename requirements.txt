@@ -9,3 +9,5 @@ streamlit-aggrid
 requests
 scipy
 finvizfinance
+statsmodels
+pandas_datareader
