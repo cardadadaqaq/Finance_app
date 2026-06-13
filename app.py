@@ -42,6 +42,15 @@ from quant_engine import (
     compute_wacc, run_backtest,
     rsi, macd, atr, fibonacci,
     fmt_bn,
+    # Multi-Factor Regression
+    run_factor_regression, run_rolling_factor_regression,
+    compare_factor_models,
+    FactorRegressionResult, FACTOR_MODEL_COLS,
+    MODEL_DISPLAY_NAMES, FACTOR_DESCRIPTIONS,
+)
+from data_engine import (
+    fetch_ff_factors, fetch_asset_returns_for_regression,
+    build_regression_dataset,
 )
 from ui_components import (
     GLOBAL_CSS, COLORS,
