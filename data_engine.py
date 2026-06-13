@@ -1,14 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════╗
-║   NAVY TERMINAL PRO  v6.0  ·  Data Engine                        ║
+║   NAVY TERMINAL PRO  v6.1  ·  Data Engine                        ║
 ║   Unified Market Data · Finviz Screener · FRED · yFinance        ║
+║   + Fama-French Factor Data (Ken French / ETF proxy)             ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
 
+import io
 import warnings
 import time
+import zipfile
 import concurrent.futures
 from datetime import datetime, timedelta
 from io import StringIO
@@ -132,7 +135,6 @@ _FINVIZ_RENAME: dict[str, str] = {
 }
 
 def _parse_finviz_market_cap(s: str) -> float:
-    """Convert Finviz market-cap strings like '2.31T', '450.12B', '12.5M' → float USD."""
     if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
         return float("nan")
     s = s.strip()
@@ -145,16 +147,13 @@ def _parse_finviz_market_cap(s: str) -> float:
     except ValueError:
         return float("nan")
 
-
 def _parse_finviz_pct(s: str) -> float:
-    """Convert '3.52%', '-1.20%' → float."""
     if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
         return float("nan")
     try:
         return float(s.strip().replace("%", ""))
     except ValueError:
         return float("nan")
-
 
 def _parse_finviz_price(s: str) -> float:
     if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
@@ -164,7 +163,6 @@ def _parse_finviz_price(s: str) -> float:
     except ValueError:
         return float("nan")
 
-
 def _parse_finviz_pe(s: str) -> float:
     if not isinstance(s, str) or s.strip() in ("-", "", "N/A"):
         return float("nan")
@@ -172,7 +170,6 @@ def _parse_finviz_pe(s: str) -> float:
         return float(s.strip())
     except ValueError:
         return float("nan")
-
 
 def _parse_finviz_volume(s) -> float:
     if isinstance(s, (int, float)):
@@ -184,22 +181,19 @@ def _parse_finviz_volume(s) -> float:
     except ValueError:
         return float("nan")
 
-
 # ══════════════════════════════════════════════════════════
-#  EMPTY SCREENER SCHEMA  (used on catastrophic failure)
+#  EMPTY SCREENER SCHEMA
 # ══════════════════════════════════════════════════════════
 _SCREENER_EMPTY_COLS = [
     "Ticker", "Name", "Sector", "Industry", "Country",
-    "MarketCap_B", "PE", "Price", "Change_Pct", "Volume",
-    "Source",
+    "MarketCap_B", "PE", "Price", "Change_Pct", "Volume", "Source",
 ]
 
 def _empty_screener_df() -> pd.DataFrame:
     return pd.DataFrame(columns=_SCREENER_EMPTY_COLS)
 
-
 # ══════════════════════════════════════════════════════════
-#  FINVIZ HTTP SESSION  (reused across calls)
+#  FINVIZ HTTP SESSION
 # ══════════════════════════════════════════════════════════
 _FINVIZ_SESSION = requests.Session()
 _FINVIZ_SESSION.headers.update({
@@ -216,154 +210,66 @@ _FINVIZ_SESSION.headers.update({
     "DNT":             "1",
 })
 
-# Finviz export column IDs for the overview layout (v=152):
-# 0=Ticker, 1=Company, 2=Sector, 3=Industry, 4=Country, 5=Market Cap,
-# 6=P/E, 7=Price, 8=Change, 9=Volume
 _FINVIZ_EXPORT_URL    = "https://finviz.com/export.ashx"
 _FINVIZ_SCREENER_URL  = "https://finviz.com/screener.ashx"
-
-# Number of tickers Finviz returns per HTML screener page
-_FINVIZ_PAGE_SIZE = 20
+_FINVIZ_PAGE_SIZE     = 20
 
 
-# ══════════════════════════════════════════════════════════
-#  PRIMARY ENGINE: FINVIZ export.ashx  (single CSV request)
-# ══════════════════════════════════════════════════════════
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_finviz_screener_data() -> pd.DataFrame:
-    """
-    Download the FULL Finviz screener universe in a SINGLE HTTP request via
-    the ``export.ashx`` CSV endpoint.  This bypasses the page-by-page HTML
-    scraper entirely and returns thousands of rows in ~1 second.
-
-    Strategy (3 layers, first success wins):
-      1. export.ashx  – one-shot CSV dump (fastest, requires a live session)
-      2. Parallel HTML pages via screener.ashx  – concurrent requests, 20 rows
-         per page; probes total-page-count then fires all pages concurrently
-         with a ThreadPoolExecutor (fast even for 200+ pages)
-      3. Returns _empty_screener_df() on total failure
-
-    Returns a clean, normalised DataFrame with typed numeric columns.
-    Cached for 10 minutes.
-    """
-
-    # ── Layer 1: export.ashx CSV (single request) ─────────────────────────
     df = _fetch_via_export_ashx()
     if not df.empty:
         return df
-
-    # ── Layer 2: parallel HTML screener pages ─────────────────────────────
     df = _fetch_via_parallel_html()
     if not df.empty:
         return df
-
     return _empty_screener_df()
 
 
-# ──────────────────────────────────────────────────────────
-#  Layer 1 helper: export.ashx  → CSV
-# ──────────────────────────────────────────────────────────
 def _fetch_via_export_ashx() -> pd.DataFrame:
-    """
-    GET https://finviz.com/export.ashx?v=152&r=1
-    Returns the whole screener as a single CSV (no pagination).
-    Works without Elite subscription for the default universe (~7,000+ tickers).
-    """
     try:
-        params = {
-            "v": "152",   # overview layout
-            "r": "1",     # start from row 1 (all rows)
-            "c": "0,1,2,3,4,5,6,7,8,9",  # columns: Ticker→Volume
-        }
-        r = _FINVIZ_SESSION.get(
-            _FINVIZ_EXPORT_URL,
-            params=params,
-            timeout=20,
-        )
+        params = {"v": "152", "r": "1", "c": "0,1,2,3,4,5,6,7,8,9"}
+        r = _FINVIZ_SESSION.get(_FINVIZ_EXPORT_URL, params=params, timeout=20)
         r.raise_for_status()
-
-        # Finviz returns 401/login page HTML when not authenticated
         content_type = r.headers.get("Content-Type", "")
         if "text/html" in content_type or r.text.strip().startswith("<"):
-            # Not authenticated — session cookie missing; try warm-up then retry
             _finviz_warmup()
-            r = _FINVIZ_SESSION.get(
-                _FINVIZ_EXPORT_URL,
-                params=params,
-                timeout=20,
-            )
+            r = _FINVIZ_SESSION.get(_FINVIZ_EXPORT_URL, params=params, timeout=20)
             r.raise_for_status()
             content_type = r.headers.get("Content-Type", "")
             if "text/html" in content_type or r.text.strip().startswith("<"):
                 return _empty_screener_df()
-
         df = pd.read_csv(StringIO(r.text))
         if df.empty or "Ticker" not in df.columns:
             return _empty_screener_df()
-
         return _normalise_finviz_csv(df)
-
     except Exception:
         return _empty_screener_df()
 
 
 def _finviz_warmup() -> None:
-    """
-    Visit screener.ashx first to obtain a valid session cookie,
-    then the export endpoint will honour the request.
-    """
     try:
-        _FINVIZ_SESSION.get(
-            _FINVIZ_SCREENER_URL,
-            params={"v": "111"},
-            timeout=10,
-        )
+        _FINVIZ_SESSION.get(_FINVIZ_SCREENER_URL, params={"v": "111"}, timeout=10)
     except Exception:
         pass
 
 
-# ──────────────────────────────────────────────────────────
-#  Layer 2 helper: parallel HTML screener pages
-# ──────────────────────────────────────────────────────────
 def _fetch_via_parallel_html() -> pd.DataFrame:
-    """
-    Scrape screener.ashx HTML pages concurrently.
-
-    Steps:
-      a) Fetch page 1 to parse total result count and column headers.
-      b) Fire all remaining pages simultaneously via ThreadPoolExecutor.
-      c) Parse BeautifulSoup tables in each worker; merge results.
-
-    This is ~10-20× faster than the sequential finvizfinance approach
-    because all HTTP round-trips happen in parallel.
-    """
     try:
         from bs4 import BeautifulSoup
     except ImportError:
         return _empty_screener_df()
-
     try:
-        # ── a) Probe page 1 ───────────────────────────────
         page1_soup, total_rows = _fetch_screener_page_html(1)
         if page1_soup is None or total_rows == 0:
             return _empty_screener_df()
-
         headers, rows_p1 = _parse_screener_table(page1_soup)
         if not headers or not rows_p1:
             return _empty_screener_df()
-
         total_pages = max(1, (total_rows + _FINVIZ_PAGE_SIZE - 1) // _FINVIZ_PAGE_SIZE)
-        # Cap at 500 pages (~10,000 tickers) to stay polite
         total_pages = min(total_pages, 500)
-
         all_rows: list[list] = rows_p1
-
-        # ── b) Remaining pages in parallel ───────────────
-        remaining_start_rows = [
-            1 + p * _FINVIZ_PAGE_SIZE
-            for p in range(1, total_pages)
-        ]
-
+        remaining_start_rows = [1 + p * _FINVIZ_PAGE_SIZE for p in range(1, total_pages)]
         if remaining_start_rows:
             def _worker(start_row: int) -> list[list]:
                 soup, _ = _fetch_screener_page_html(start_row)
@@ -371,49 +277,29 @@ def _fetch_via_parallel_html() -> pd.DataFrame:
                     return []
                 _, rows = _parse_screener_table(soup)
                 return rows or []
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=30) as pool:
-                futures = {
-                    pool.submit(_worker, sr): sr
-                    for sr in remaining_start_rows
-                }
+                futures = {pool.submit(_worker, sr): sr for sr in remaining_start_rows}
                 for fut in concurrent.futures.as_completed(futures):
                     try:
                         all_rows.extend(fut.result(timeout=15))
                     except Exception:
                         pass
-
         if not all_rows:
             return _empty_screener_df()
-
-        # ── c) Build DataFrame ────────────────────────────
         df = pd.DataFrame(all_rows, columns=headers)
         return _normalise_finviz_html_df(df)
-
     except Exception:
         return _empty_screener_df()
 
 
-def _fetch_screener_page_html(
-    start_row: int,
-) -> tuple["BeautifulSoup | None", int]:
-    """
-    Fetch one HTML screener page (starting at ``start_row``).
-    Returns (BeautifulSoup, total_result_count).
-    total_result_count is only meaningful for start_row=1 (first page).
-    """
+def _fetch_screener_page_html(start_row: int) -> tuple:
     try:
         from bs4 import BeautifulSoup
-
         r = _FINVIZ_SESSION.get(
-            _FINVIZ_SCREENER_URL,
-            params={"v": "111", "r": str(start_row)},
-            timeout=12,
+            _FINVIZ_SCREENER_URL, params={"v": "111", "r": str(start_row)}, timeout=12
         )
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "lxml")
-
-        # Parse total count from "Total: 7,423" text on page 1
         total = 0
         try:
             td_total = soup.find("td", {"class": "count-text"})
@@ -424,183 +310,109 @@ def _fetch_screener_page_html(
                     total = int(m.group(1).replace(",", ""))
         except Exception:
             pass
-
         return soup, total
-
     except Exception:
         return None, 0
 
 
-def _parse_screener_table(
-    soup: "BeautifulSoup",
-) -> tuple[list[str], list[list]]:
-    """
-    Extract column headers and data rows from a Finviz screener HTML page.
-    Returns (headers, rows) where each row is a list of raw string values.
-    """
+def _parse_screener_table(soup) -> tuple:
     try:
         table = soup.find("table", {"class": "screener_table"})
         if table is None:
             return [], []
-
         tr_list = table.find_all("tr")
         if len(tr_list) < 2:
             return [], []
-
-        # Header row (first <tr>)
         headers = [th.get_text(strip=True) for th in tr_list[0].find_all("th")][1:]
-
-        # Data rows
         rows: list[list] = []
         for tr in tr_list[1:]:
             cells = tr.find_all("td")
             if len(cells) < 2:
                 continue
             row = [td.get_text(strip=True) for td in cells[1:]]
-            # Pad / trim to match header length
             while len(row) < len(headers):
                 row.append("")
             rows.append(row[: len(headers)])
-
         return headers, rows
-
     except Exception:
         return [], []
 
 
-# ──────────────────────────────────────────────────────────
-#  Normalisation helpers
-# ──────────────────────────────────────────────────────────
 def _normalise_finviz_csv(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalise the DataFrame returned by export.ashx (CSV format).
-    Column names from the CSV export are already clean English labels.
-    """
-    # export.ashx CSV header names
     csv_rename = {
-        "Ticker":     "Ticker",
-        "Company":    "Name",
-        "Sector":     "Sector",
-        "Industry":   "Industry",
-        "Country":    "Country",
-        "Market Cap": "MarketCap_raw",
-        "P/E":        "PE_raw",
-        "Price":      "Price_raw",
-        "Change":     "Change_raw",
-        "Volume":     "Volume_raw",
+        "Ticker": "Ticker", "Company": "Name", "Sector": "Sector",
+        "Industry": "Industry", "Country": "Country",
+        "Market Cap": "MarketCap_raw", "P/E": "PE_raw",
+        "Price": "Price_raw", "Change": "Change_raw", "Volume": "Volume_raw",
     }
-
     rename_map = {c: csv_rename[c] for c in df.columns if c in csv_rename}
     df = df.rename(columns=rename_map)
-
-    # Guarantee all expected raw columns exist
     for col in ["MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]:
         if col not in df.columns:
             df[col] = None
-
     return _build_clean_df(df, source="Finviz")
 
 
 def _normalise_finviz_html_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Normalise the DataFrame built from parallel HTML scraping.
-    Column names come from the screener table <th> elements.
-    """
     rename_map = {c: _FINVIZ_RENAME[c] for c in df.columns if c in _FINVIZ_RENAME}
     df = df.rename(columns=rename_map)
-
     for col in ["MarketCap_raw", "PE_raw", "Price_raw", "Change_raw", "Volume_raw"]:
         if col not in df.columns:
             df[col] = None
-
     return _build_clean_df(df, source="Finviz")
 
 
 def _build_clean_df(df: pd.DataFrame, source: str) -> pd.DataFrame:
-    """
-    Common final-stage normalisation: parse numeric columns, fill strings,
-    filter empty tickers, return only _SCREENER_EMPTY_COLS.
-    """
     df["MarketCap_B"] = df["MarketCap_raw"].apply(_parse_finviz_market_cap) / 1e9
     df["PE"]          = df["PE_raw"].apply(_parse_finviz_pe)
     df["Price"]       = df["Price_raw"].apply(_parse_finviz_price)
     df["Change_Pct"]  = df["Change_raw"].apply(_parse_finviz_pct)
     df["Volume"]      = df["Volume_raw"].apply(_parse_finviz_volume)
-
     for col in ["Ticker", "Name", "Sector", "Industry", "Country"]:
         if col not in df.columns:
             df[col] = "N/A"
         df[col] = df[col].fillna("N/A").astype(str)
-
     df["Source"] = source
-
-    # Ensure all output columns exist
     for col in _SCREENER_EMPTY_COLS:
         if col not in df.columns:
             df[col] = float("nan") if col not in ("Ticker", "Name", "Sector", "Industry", "Country", "Source") else "N/A"
-
     out = df[_SCREENER_EMPTY_COLS].copy()
     out = out[out["Ticker"].str.strip().ne("") & out["Ticker"].ne("N/A")]
     return out.reset_index(drop=True)
 
 
-# ══════════════════════════════════════════════════════════
-#  BACKUP ENGINE: MULTI-THREADED BATCH YFINANCE
-# ══════════════════════════════════════════════════════════
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_backup_yfinance_screener(
     universe: tuple[str, ...] | None = None,
     chunk_size: int = 100,
 ) -> pd.DataFrame:
-    """
-    Batch-download price data for the curated universe using yf.download()
-    with multi-threading.  Price, Change%, Volume are computed vectorially.
-    Metadata (Sector, Industry, Country, MarketCap, PE) is fetched in parallel
-    via a ThreadPoolExecutor — one yf.Ticker.info call per stock, capped to
-    avoid hammering Yahoo.  On any failure returns _empty_screener_df().
-    """
     if universe is None:
         universe = tuple(SCREENER_UNIVERSE_FULL)
-
     try:
-        # ── 1. Batch price download (vectorised) ──────────
         tickers_str = " ".join(universe)
         raw_px = yf.download(
-            tickers=tickers_str,
-            period="5d",
-            interval="1d",
-            threads=True,
-            progress=False,
-            auto_adjust=True,
+            tickers=tickers_str, period="5d", interval="1d",
+            threads=True, progress=False, auto_adjust=True,
         )
-
         if raw_px.empty:
             return _empty_screener_df()
-
         if isinstance(raw_px.columns, pd.MultiIndex):
-            close_df  = raw_px["Close"]   if "Close"  in raw_px.columns.get_level_values(0) else pd.DataFrame()
-            volume_df = raw_px["Volume"]  if "Volume" in raw_px.columns.get_level_values(0) else pd.DataFrame()
+            close_df  = raw_px["Close"]  if "Close"  in raw_px.columns.get_level_values(0) else pd.DataFrame()
+            volume_df = raw_px["Volume"] if "Volume" in raw_px.columns.get_level_values(0) else pd.DataFrame()
         else:
             single = list(universe)[0]
             close_df  = raw_px[["Close"]].rename(columns={"Close": single})
             volume_df = raw_px[["Volume"]].rename(columns={"Volume": single})
-
         if close_df.empty:
             return _empty_screener_df()
-
         close_df  = close_df.dropna(how="all").ffill()
         volume_df = volume_df.dropna(how="all").ffill()
-
         if len(close_df) < 2:
             return _empty_screener_df()
-
         last_close  = close_df.iloc[-1]
         prev_close  = close_df.iloc[-2]
         last_volume = volume_df.iloc[-1] if not volume_df.empty else pd.Series(dtype=float)
-
-        change_pct = ((last_close - prev_close) / prev_close.replace(0, float("nan"))) * 100
-
-        # ── 2. Parallel metadata fetch ────────────────────
+        change_pct  = ((last_close - prev_close) / prev_close.replace(0, float("nan"))) * 100
         valid_tickers = [t for t in last_close.index if pd.notna(last_close[t])]
 
         def _fetch_meta(tkr: str) -> dict:
@@ -633,62 +445,42 @@ def fetch_backup_yfinance_screener(
         if meta_df.empty or "Ticker" not in meta_df.columns:
             meta_df = pd.DataFrame({"Ticker": valid_tickers})
 
-        # ── 3. Assemble final DataFrame ───────────────────
         price_records = []
         for tkr in valid_tickers:
             price_records.append({
                 "Ticker":     tkr,
                 "Price":      round(float(last_close[tkr]), 4) if pd.notna(last_close[tkr]) else float("nan"),
-                "Change_Pct": round(float(change_pct[tkr]), 2)  if pd.notna(change_pct.get(tkr, float("nan"))) else float("nan"),
+                "Change_Pct": round(float(change_pct[tkr]), 2) if pd.notna(change_pct.get(tkr, float("nan"))) else float("nan"),
                 "Volume":     float(last_volume[tkr]) if tkr in last_volume.index and pd.notna(last_volume[tkr]) else float("nan"),
             })
 
         price_df = pd.DataFrame(price_records)
         merged   = price_df.merge(meta_df, on="Ticker", how="left")
-
         for col in ["Name", "Sector", "Industry", "Country"]:
             if col not in merged.columns:
                 merged[col] = "N/A"
             merged[col] = merged[col].fillna("N/A").astype(str)
-
         for col in ["MarketCap_B", "PE"]:
             if col not in merged.columns:
                 merged[col] = float("nan")
-
         merged["Source"] = "yFinance"
-
         out = merged[_SCREENER_EMPTY_COLS].copy().reset_index(drop=True)
         return out
-
     except Exception:
         return _empty_screener_df()
 
 
-# ══════════════════════════════════════════════════════════
-#  UNIFIED SCREENER ENTRY POINT
-# ══════════════════════════════════════════════════════════
-def load_screener_master_data(
-    force_fallback: bool = False,
-) -> tuple[pd.DataFrame, str]:
-    """
-    Attempt Finviz first (export.ashx → parallel HTML); fall back to
-    yFinance batch on any failure.  Returns (DataFrame, source_label).
-    """
+def load_screener_master_data(force_fallback: bool = False) -> tuple[pd.DataFrame, str]:
     if not force_fallback:
         df = fetch_finviz_screener_data()
         if not df.empty:
             return df, "Finviz"
-
     df = fetch_backup_yfinance_screener(universe=tuple(SCREENER_UNIVERSE_FULL))
     if not df.empty:
         return df, "yFinance Batch"
-
     return _empty_screener_df(), "None (Network Error)"
 
 
-# ══════════════════════════════════════════════════════════
-#  SCREENER FILTER ENGINE  (pure pandas — no web requests)
-# ══════════════════════════════════════════════════════════
 def apply_screener_filters(
     df: pd.DataFrame,
     sector: str = "All",
@@ -701,29 +493,22 @@ def apply_screener_filters(
     max_change_pct: float = 100.0,
     keyword: str = "",
 ) -> pd.DataFrame:
-    """Apply all screener filter criteria to the master DataFrame locally."""
     out = df.copy()
-
     if sector != "All":
         out = out[out["Sector"].str.strip() == sector]
-
     if country != "All":
         out = out[out["Country"].str.strip() == country]
-
     mc = pd.to_numeric(out["MarketCap_B"], errors="coerce")
     out = out[(mc >= min_marketcap_b) | mc.isna()]
     out = out[(mc <= max_marketcap_b) | mc.isna()]
-
     pe = pd.to_numeric(out["PE"], errors="coerce")
     if max_pe < 500:
         out = out[(pe <= max_pe) | pe.isna()]
     if min_pe > 0:
         out = out[pe >= min_pe]
-
     chg = pd.to_numeric(out["Change_Pct"], errors="coerce")
     out = out[(chg >= min_change_pct) | chg.isna()]
     out = out[(chg <= max_change_pct) | chg.isna()]
-
     if keyword.strip():
         kw = keyword.strip().lower()
         mask = (
@@ -733,7 +518,6 @@ def apply_screener_filters(
             out["Ticker"].str.lower().str.contains(kw, na=False)
         )
         out = out[mask]
-
     return out.reset_index(drop=True)
 
 
@@ -741,11 +525,6 @@ def apply_screener_filters(
 #  UNIFIED MARKET DATA ENGINE
 # ══════════════════════════════════════════════════════════
 class UnifiedMarketDataEngine:
-    """
-    Attempts SEC EDGAR / OpenBB first, then yFinance as fallback.
-    For v6 the open-source yFinance path is the primary live path.
-    """
-
     def __init__(self, ticker: str):
         self.ticker      = ticker.strip().upper()
         self.data_source = "yFinance"
@@ -766,10 +545,6 @@ class UnifiedMarketDataEngine:
         return {}
 
     def deep_financials(self) -> dict[str, pd.Series]:
-        """
-        Returns a dict of metric_name → annual time-series (pd.Series).
-        Falls back gracefully to empty dict.
-        """
         results: dict[str, pd.Series] = {}
         try:
             t     = yf.Ticker(self.ticker)
@@ -792,7 +567,6 @@ class UnifiedMarketDataEngine:
                 results["Operating Income"] = _row(inc_a, "Operating Income", "EBIT")
                 results["Net Income"]       = _row(inc_a, "Net Income")
                 results["EBITDA"]           = _row(inc_a, "EBITDA", "Normalized EBITDA")
-
             if cf_a is not None and not cf_a.empty:
                 results["Operating CF"] = _row(cf_a, "Operating Cash Flow", "Total Cash From Operating")
                 results["Capex"]        = _row(cf_a, "Capital Expenditure", "Capex")
@@ -801,18 +575,14 @@ class UnifiedMarketDataEngine:
                 if not fcf_op.empty and not fcf_cap.empty:
                     aligned = fcf_op.align(fcf_cap, join="inner")
                     results["Free Cash Flow"] = aligned[0] - aligned[1].abs()
-
             if bal_a is not None and not bal_a.empty:
                 results["Total Assets"] = _row(bal_a, "Total Assets")
                 results["Total Debt"]   = _row(bal_a, "Total Debt", "Long Term Debt")
                 results["Total Equity"] = _row(bal_a, "Stockholders Equity", "Total Equity")
                 results["Cash"]         = _row(bal_a, "Cash And Cash Equivalents", "Cash")
-
             results = {k: v for k, v in results.items() if isinstance(v, pd.Series) and not v.empty}
-
         except Exception:
             pass
-
         return results
 
 
@@ -939,10 +709,6 @@ _FRED_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_fred(series_id: str, start: str | None = None) -> pd.Series:
-    """
-    Download a FRED series directly via CSV endpoint (no API key required).
-    Returns a pd.Series indexed by date.  Returns empty Series on failure.
-    """
     try:
         params: dict[str, str] = {"id": series_id}
         if start:
@@ -957,3 +723,390 @@ def fetch_fred(series_id: str, start: str | None = None) -> pd.Series:
         return s
     except Exception:
         return pd.Series(dtype=float)
+
+
+# ══════════════════════════════════════════════════════════
+#  FAMA-FRENCH FACTOR DATA ENGINE  (NEW)
+# ══════════════════════════════════════════════════════════
+
+# Factor proxy ETF tickers used when Ken French website is unavailable
+# Each factor is approximated as a long-short spread between two ETFs
+_FF_PROXY_ETF_MAP = {
+    # Factor:   (long_etf, short_etf)  — spread approximates the factor premium
+    "Mkt-RF":   ("SPY",  None),       # Market excess return (vs risk-free)
+    "SMB":      ("IWM",  "IVV"),      # Small - Large cap
+    "HML":      ("IVE",  "IVW"),      # Value - Growth
+    "MOM":      ("MTUM", "SPY"),      # Momentum vs broad market
+    "RMW":      ("QUAL", "SPY"),      # Profitability (Quality) vs broad
+    "CMA":      ("USMV", "SPY"),      # Conservative investment (Low-Vol) vs broad
+    # Risk-free proxy: 3-month T-bill annualised → daily
+    "RF":       ("SHY",  None),       # Short-term T-bill ETF as RF proxy
+}
+
+# Ken French data library — CSV zip endpoints (no API key needed, sometimes 403)
+_KF_BASE = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp"
+_KF_DATASETS = {
+    "FF3":  "F-F_Research_Data_Factors_daily_CSV.zip",
+    "FF5":  "F-F_Research_Data_5_Factors_2x3_daily_CSV.zip",
+    "MOM":  "F-F_Momentum_Factor_daily_CSV.zip",
+}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_ff_factors_kf(
+    dataset_key: str = "FF3",
+    start: str = "2018-01-01",
+    end: str | None = None,
+) -> pd.DataFrame:
+    """
+    Attempt to download Fama-French factors directly from Ken French's data
+    library (CSV zip files, no API key required).
+
+    Parameters
+    ----------
+    dataset_key : "FF3" | "FF5" | "MOM"
+    start       : start date string YYYY-MM-DD
+    end         : end date string YYYY-MM-DD (defaults to today)
+
+    Returns
+    -------
+    DataFrame with date index and factor columns as decimals (÷ 100).
+    Columns: Mkt-RF, SMB, HML, [MOM], [RMW, CMA], RF
+    Empty DataFrame on failure.
+    """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
+    fname = _KF_DATASETS.get(dataset_key, _KF_DATASETS["FF3"])
+    url   = f"{_KF_BASE}/{fname}"
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+            "Referer":    "https://mba.tuck.dartmouth.edu/",
+        }
+        r = requests.get(url, headers=headers, timeout=25)
+        if r.status_code != 200:
+            return pd.DataFrame()
+
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            csv_name = [n for n in z.namelist() if n.endswith(".CSV") or n.endswith(".csv")]
+            if not csv_name:
+                return pd.DataFrame()
+            raw = z.read(csv_name[0]).decode("utf-8", errors="replace")
+
+        # Ken French CSVs have a preamble before the data starts
+        lines = raw.splitlines()
+        # Find header line containing "Mkt-RF" or "Mkt_RF"
+        header_idx = None
+        for i, line in enumerate(lines):
+            if "Mkt" in line and ("SMB" in line or "HML" in line):
+                header_idx = i
+                break
+
+        if header_idx is None:
+            return pd.DataFrame()
+
+        data_str = "\n".join(lines[header_idx:])
+        df = pd.read_csv(StringIO(data_str), index_col=0)
+        # Drop footer rows (non-numeric index)
+        df.index = pd.to_numeric(df.index, errors="coerce")
+        df = df[df.index.notna()].copy()
+        df.index = pd.to_datetime(df.index.astype(int).astype(str), format="%Y%m%d")
+        df.index.name = "Date"
+
+        # Normalise column names
+        df.columns = [c.strip() for c in df.columns]
+        col_map = {}
+        for c in df.columns:
+            cl = c.lower().replace(" ", "").replace("-", "").replace("_", "")
+            if "mkt" in cl:   col_map[c] = "Mkt-RF"
+            elif "smb" in cl: col_map[c] = "SMB"
+            elif "hml" in cl: col_map[c] = "HML"
+            elif cl == "mom" or "moment" in cl: col_map[c] = "MOM"
+            elif "rmw" in cl: col_map[c] = "RMW"
+            elif "cma" in cl: col_map[c] = "CMA"
+            elif cl == "rf":  col_map[c] = "RF"
+        df = df.rename(columns=col_map)
+
+        # Convert percentage to decimal
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce") / 100
+
+        df = df.dropna(how="all")
+        df = df[df.index >= pd.to_datetime(start)]
+        if end:
+            df = df[df.index <= pd.to_datetime(end)]
+
+        return df
+
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_ff_factors_proxy(
+    start: str = "2018-01-01",
+    end:   str | None = None,
+    model: str = "FF5",
+) -> pd.DataFrame:
+    """
+    Build Fama-French-style factor returns from ETF proxies via yFinance.
+    Used as fallback when Ken French website is inaccessible.
+
+    Factor construction:
+      Mkt-RF = SPY daily ret - daily RF (SHY proxy)
+      SMB    = IWM ret - IVV ret   (Small - Large)
+      HML    = IVE ret - IVW ret   (Value - Growth)
+      MOM    = MTUM ret - QUAL ret  (Momentum - Quality)
+      RMW    = QUAL ret - SPY ret   (Profitability premium)
+      CMA    = USMV ret - SPY ret   (Conservative investment / Low vol premium)
+      RF     = SHY daily ret (T-bill proxy, annualised /252)
+
+    Returns decimals (not percentages).
+    """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
+    # Download all proxy ETFs in a single batch call
+    proxy_tickers = ["SPY", "IWM", "IVV", "IVE", "IVW", "MTUM", "QUAL", "USMV", "SHY"]
+    try:
+        raw = yf.download(
+            tickers=" ".join(proxy_tickers),
+            start=start, end=end,
+            progress=False, auto_adjust=True,
+        )
+        if raw.empty:
+            return pd.DataFrame()
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            px = raw["Close"]
+        else:
+            px = raw[["Close"]].rename(columns={"Close": proxy_tickers[0]})
+
+        # Drop columns with too many NaNs
+        px = px.dropna(how="all", axis=0).ffill().bfill()
+        ret = px.pct_change().dropna(how="all")
+
+        factors = pd.DataFrame(index=ret.index)
+
+        # Daily risk-free rate from SHY (annualised T-bill → daily)
+        rf_daily = ret["SHY"] if "SHY" in ret.columns else pd.Series(0, index=ret.index)
+        factors["RF"] = rf_daily
+
+        # Mkt-RF
+        if "SPY" in ret.columns:
+            factors["Mkt-RF"] = ret["SPY"] - rf_daily
+
+        # SMB: IWM (small) - IVV (large)
+        if "IWM" in ret.columns and "IVV" in ret.columns:
+            factors["SMB"] = ret["IWM"] - ret["IVV"]
+        elif "IWM" in ret.columns and "SPY" in ret.columns:
+            factors["SMB"] = ret["IWM"] - ret["SPY"]
+
+        # HML: IVE (value) - IVW (growth)
+        if "IVE" in ret.columns and "IVW" in ret.columns:
+            factors["HML"] = ret["IVE"] - ret["IVW"]
+
+        # MOM: MTUM - SPY
+        if "MTUM" in ret.columns and "SPY" in ret.columns:
+            factors["MOM"] = ret["MTUM"] - ret["SPY"]
+
+        # RMW: QUAL - SPY (quality/profitability premium)
+        if "QUAL" in ret.columns and "SPY" in ret.columns:
+            factors["RMW"] = ret["QUAL"] - ret["SPY"]
+
+        # CMA: USMV - SPY (low-vol / conservative investment proxy)
+        if "USMV" in ret.columns and "SPY" in ret.columns:
+            factors["CMA"] = ret["USMV"] - ret["SPY"]
+
+        return factors.dropna(how="all")
+
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_ff_factors(
+    start: str = "2018-01-01",
+    end:   str | None = None,
+    model: str = "FF5",
+) -> tuple[pd.DataFrame, str]:
+    """
+    Unified Fama-French factor loader.
+
+    Strategy (first success wins):
+      1. Ken French data library (most accurate)
+      2. ETF proxy construction via yFinance (always available)
+
+    Parameters
+    ----------
+    start : start date YYYY-MM-DD
+    end   : end date YYYY-MM-DD
+    model : "CAPM" | "FF3" | "CARHART4" | "FF5"
+
+    Returns
+    -------
+    (factors_df, source_label)
+    factors_df has columns: Mkt-RF, SMB, HML, [MOM], [RMW, CMA], RF
+    Values are decimals (daily returns, not percentages).
+    """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
+    # Map model to Ken French dataset
+    kf_map = {
+        "CAPM":     ("FF3",  ["Mkt-RF", "RF"]),
+        "FF3":      ("FF3",  ["Mkt-RF", "SMB", "HML", "RF"]),
+        "CARHART4": ("FF3",  ["Mkt-RF", "SMB", "HML", "RF"]),  # + MOM separate
+        "FF5":      ("FF5",  ["Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"]),
+    }
+    kf_key, needed_cols = kf_map.get(model, ("FF3", ["Mkt-RF", "SMB", "HML", "RF"]))
+
+    # ── Layer 1: Ken French website ──────────────────────
+    df_kf = fetch_ff_factors_kf(kf_key, start=start, end=end)
+
+    # For Carhart, also need MOM from separate dataset
+    if model == "CARHART4" and not df_kf.empty:
+        df_mom = fetch_ff_factors_kf("MOM", start=start, end=end)
+        if not df_mom.empty and "MOM" in df_mom.columns:
+            df_kf = df_kf.join(df_mom[["MOM"]], how="left")
+
+    if not df_kf.empty:
+        available = [c for c in needed_cols if c in df_kf.columns]
+        if len(available) >= 2:
+            return df_kf[available].dropna(), "Ken French Library"
+
+    # ── Layer 2: ETF proxy ───────────────────────────────
+    df_proxy = fetch_ff_factors_proxy(start=start, end=end, model=model)
+    if not df_proxy.empty:
+        available = [c for c in needed_cols if c in df_proxy.columns]
+        if available:
+            return df_proxy[available].dropna(), "ETF Proxy (yFinance)"
+
+    return pd.DataFrame(), "Unavailable"
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_asset_returns_for_regression(
+    input_type: str,
+    ticker:     str = "",
+    portfolio_tickers: list[str] | None = None,
+    portfolio_weights: list[float] | None = None,
+    start: str = "2018-01-01",
+    end:   str | None = None,
+) -> tuple[pd.Series, str]:
+    """
+    Fetch and compute daily returns for the target asset or portfolio.
+
+    Parameters
+    ----------
+    input_type          : "Single Ticker / ETF" | "Custom Portfolio"
+    ticker              : yfinance ticker string (for single asset mode)
+    portfolio_tickers   : list of tickers (for portfolio mode)
+    portfolio_weights   : list of weights summing to 1.0 (for portfolio mode)
+    start, end          : date range
+
+    Returns
+    -------
+    (daily_returns_series, label_string)
+    """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
+    if input_type == "Single Ticker / ETF":
+        tkr = ticker.strip().upper()
+        if not tkr:
+            return pd.Series(dtype=float), ""
+        try:
+            px = yf.download(tkr, start=start, end=end, progress=False, auto_adjust=True)
+            if px.empty:
+                return pd.Series(dtype=float), tkr
+            if isinstance(px.columns, pd.MultiIndex):
+                px.columns = px.columns.get_level_values(0)
+            close = px["Close"].dropna()
+            ret = close.pct_change().dropna()
+            ret.name = tkr
+            return ret, tkr
+        except Exception:
+            return pd.Series(dtype=float), tkr
+
+    elif input_type == "Custom Portfolio":
+        if not portfolio_tickers or not portfolio_weights:
+            return pd.Series(dtype=float), "Portfolio"
+
+        # Normalise weights
+        w = np.array(portfolio_weights, dtype=float)
+        w = w / w.sum()
+
+        tickers_str = " ".join([t.strip().upper() for t in portfolio_tickers])
+        try:
+            raw = yf.download(
+                tickers=tickers_str, start=start, end=end,
+                progress=False, auto_adjust=True,
+            )
+            if raw.empty:
+                return pd.Series(dtype=float), "Portfolio"
+
+            if isinstance(raw.columns, pd.MultiIndex):
+                px = raw["Close"]
+            else:
+                px = raw[["Close"]].rename(columns={"Close": portfolio_tickers[0]})
+
+            px = px.dropna(how="all").ffill()
+            ret_df = px.pct_change().dropna(how="all")
+
+            # Align weights to available columns
+            valid = [(t.strip().upper(), wt) for t, wt in zip(portfolio_tickers, w) if t.strip().upper() in ret_df.columns]
+            if not valid:
+                return pd.Series(dtype=float), "Portfolio"
+
+            tks_v, wts_v = zip(*valid)
+            wts_v_arr = np.array(wts_v)
+            wts_v_arr = wts_v_arr / wts_v_arr.sum()
+
+            port_ret = (ret_df[list(tks_v)] * wts_v_arr).sum(axis=1)
+            port_ret.name = "Portfolio"
+            port_ret = port_ret.dropna()
+            label = " + ".join([f"{t}({wt*100:.0f}%)" for t, wt in zip(tks_v, wts_v_arr)])
+            return port_ret, label
+        except Exception:
+            return pd.Series(dtype=float), "Portfolio"
+
+    return pd.Series(dtype=float), ""
+
+
+def build_regression_dataset(
+    asset_returns:  pd.Series,
+    factors_df:     pd.DataFrame,
+    rf_col:         str = "RF",
+) -> tuple[pd.Series, pd.DataFrame]:
+    """
+    Align asset returns with factor data and compute excess returns.
+
+    Returns
+    -------
+    (excess_returns, factor_columns_df)
+    excess_returns = asset_ret - RF (daily)
+    factor_columns_df = all factor columns except RF
+    """
+    # Align on common dates
+    aligned = pd.concat([asset_returns.rename("Asset"), factors_df], axis=1, join="inner").dropna()
+
+    if aligned.empty or len(aligned) < 30:
+        return pd.Series(dtype=float), pd.DataFrame()
+
+    # Daily risk-free rate
+    if rf_col in aligned.columns:
+        rf_series = aligned[rf_col]
+    else:
+        # Fallback: use 4.2% annual → daily
+        rf_series = pd.Series(0.042 / 252, index=aligned.index)
+
+    excess_ret = aligned["Asset"] - rf_series
+    factor_cols = [c for c in aligned.columns if c not in ("Asset", rf_col)]
+    factor_data = aligned[factor_cols]
+
+    return excess_ret, factor_data
+DATAENGINE_EOF
+echo "data_engine.py written: $(wc -l < /home/claude/data_engine.py) lines"
