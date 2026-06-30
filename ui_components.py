@@ -810,9 +810,10 @@ def navy_grid(
         if display_df.columns[0] in ("index", None, ""):
             display_df.rename(columns={display_df.columns[0]: idx_name}, inplace=True)
     # Convert all-numeric strings to floats where possible (for sorting)
-    for col in display_df.columns[1:]:
-        display_df[col] = pd.to_numeric(display_df[col], errors="ignore")
-
+  for col in display_df.columns[1:]:
+        converted = pd.to_numeric(display_df[col], errors="coerce")
+        if not converted.isna().all():
+            display_df[col] = converted.where(converted.notna(), display_df[col])
     gb = GridOptionsBuilder.from_dataframe(display_df)
     gb.configure_default_column(resizable=True, sortable=True, filter=True, minWidth=60)
 
