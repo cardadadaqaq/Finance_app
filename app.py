@@ -752,8 +752,8 @@ with st.sidebar:
         "Dynamic Chart Engine",
     ]
     for label in MENU:
-    active = st.session_state.page == label
-    if st.button(
+        active = st.session_state.page == label
+        if st.button(
         f"{'▶' if active else '·'}  {label}",
         key=f"nav_{label}",
         use_container_width=True,
