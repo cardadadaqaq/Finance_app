@@ -1108,5 +1108,3 @@ def build_regression_dataset(
     factor_data = aligned[factor_cols]
 
     return excess_ret, factor_data
-DATAENGINE_EOF
-echo "data_engine.py written: $(wc -l < /home/claude/data_engine.py) lines"
