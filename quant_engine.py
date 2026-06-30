@@ -799,5 +799,3 @@ def compare_factor_models(
         if res is not None:
             results[m] = res
     return results
-QUANTENGINE_EOF
-echo "quant_engine.py written: $(wc -l < /home/claude/quant_engine.py) lines"
