@@ -1913,7 +1913,7 @@ elif choice == "Portfolio Backtest":
         BENCH_MAP = {"S&P 500 (^GSPC)":"^GSPC","Nasdaq (^IXIC)":"^IXIC","MSCI World (VWCE.DE)":"VWCE.DE","Custom 60/40":None}
         bench_lbl = st.selectbox("Benchmark", list(BENCH_MAP.keys()))
         bench_tkr = BENCH_MAP[bench_lbl]
-    with p2: years  = st.slider("Horizon (years)", 1, 30, 10, key="bt_yrs")
+    with p2: years  = st.slider("Horizon (years)", 1, 70, 10, key="bt_yrs")
     with p3: rf_bt  = st.slider("Risk-free (%)", 0.0, 7.0, 4.2, step=0.1)
     with p4: rebal  = st.selectbox("Rebalancing",["none","M","Q","A"],
                                    format_func=lambda x:{"none":"None","M":"Monthly","Q":"Quarterly","A":"Annually"}[x])
