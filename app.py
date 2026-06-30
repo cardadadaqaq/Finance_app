@@ -759,8 +759,8 @@ with st.sidebar:
         use_container_width=True,
         type="primary" if active else "secondary",
     ):
-        st.session_state.page = label
-        st.rerun()
+          st.session_state.page = label
+          st.rerun()
 
     st.markdown("""
     <div style='margin-top:1.5rem;padding:0 0.5rem'>
