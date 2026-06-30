@@ -64,10 +64,9 @@ from ui_components import (
 #  APP CONFIG
 # ══════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="NAVY TERMINAL PRO v6.1",
+    page_title="NAVY TERMINAL PRO",
     layout="wide",
     initial_sidebar_state="expanded",
-    page_icon="⚓",
 )
 
 # ══════════════════════════════════════════════════════════
@@ -738,19 +737,19 @@ with st.sidebar:
     </div>""", unsafe_allow_html=True)
 
     MENU = [
-        ("MKT", "Market Overview"),
-        ("WL",  "Watchlist"),
-        ("TRM", "Company Terminal"),
-        ("CRT", "Charts & Technical"),
-        ("DCF", "DCF Valuation"),
-        ("CMP", "Multi-Compare"),
-        ("BKT", "Portfolio Backtest"),
-        ("SCR", "Stock Screener"),
-        ("MAC", "Macro & FRED"),
-        ("OPT", "Options & Derivatives"),
-        ("FX",  "FX & Commodities"),
-        ("ECO", "Economic Calendar"),
-        ("DCE", "Dynamic Chart Engine"),
+        ("Market Overview"),
+        ("Watchlist"),
+        ("Company Terminal"),
+        ("Charts & Technical"),
+        ("DCF Valuation"),
+        ("Multi-Compare"),
+        ("Portfolio Backtest"),
+        ("Stock Screener"),
+        ("Macro & FRED"),
+        ("Options & Derivatives"),
+        ("FX & Commodities"),
+        ("Economic Calendar"),
+        ("Dynamic Chart Engine"),
     ]
     for code, label in MENU:
         active = st.session_state.page == label
@@ -768,7 +767,7 @@ with st.sidebar:
       <div style='height:1px;background:linear-gradient(90deg,transparent,#111,transparent);margin-bottom:0.6rem'></div>
       <div style='font-family:IBM Plex Mono,monospace;font-size:0.44rem;color:#0e1e2e;text-align:center;letter-spacing:0.14em;line-height:2'>
         FINVIZ · FRED · YFINANCE · AGGRID<br>
-        NAVY TERMINAL PRO v6.1 · ⚓
+        NAVY TERMINAL PRO 
       </div>
     </div>""", unsafe_allow_html=True)
 
