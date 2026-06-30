@@ -1849,9 +1849,41 @@ elif choice == "Multi-Compare":
 elif choice == "Portfolio Backtest":
     ptitle("PORTFOLIO BACKTEST ENGINE","Vectorized · Drawdown · Rolling Sharpe · Monthly Heatmap · Factor Exposure")
 
+    # ── Index lookup: indices have far longer history than ETFs ──
+    INDEX_MAP = {
+        "S&P 500":              "^GSPC",
+        "Nasdaq Composite":     "^IXIC",
+        "Dow Jones Industrial": "^DJI",
+        "Russell 2000":         "^RUT",
+        "FTSE 100 (UK)":        "^FTSE",
+        "DAX (Germany)":        "^GDAXI",
+        "CAC 40 (France)":      "^FCHI",
+        "FTSE MIB (Italy)":     "FTSEMIB.MI",
+        "Euro Stoxx 50":        "^STOXX50E",
+        "Nikkei 225 (Japan)":   "^N225",
+        "Hang Seng (HK)":       "^HSI",
+        "VIX (Volatility)":     "^VIX",
+    }
+
     sec("PORTFOLIO COMPOSITION")
+    with st.expander("📊 Indices vs ETFs — quick reference", expanded=False):
+        st.caption(
+            "ETFs typically have 5–15 years of history. Indices (prefixed `^` on "
+            "Yahoo Finance) often go back 50–100 years, useful for long-horizon "
+            "backtests. You can type any index symbol directly into an Asset field, "
+            "or use the quick-add picker below."
+        )
+        ic1, ic2 = st.columns([3, 1])
+        with ic1:
+            idx_pick = st.selectbox("Quick-add an index", list(INDEX_MAP.keys()), key="idx_picker")
+        with ic2:
+            st.write("")
+            st.write("")
+            st.code(INDEX_MAP[idx_pick], language=None)
+        st.caption("Copy the symbol above into any Asset field below to use it.")
+
     n_a  = st.slider("Number of assets", 2, 12, 4)
-    defs = ["VOO","GLD","TLT","QQQ","BND","VNQ","EEM","PDBC","IAU","VWCE.DE","AAPL","NVDA"]
+    defs = ["VOO","GLD","TLT","QQQ","BND","VNQ","EEM","PDBC","IAU","VWCE.DE","^GSPC","^IXIC"]
     ct   = st.columns(n_a)
     cw   = st.columns(n_a)
     assets: list[str] = []
@@ -1860,7 +1892,10 @@ elif choice == "Portfolio Backtest":
     for i in range(n_a):
         with ct[i]:
             a = st.text_input(f"Asset {i+1}", defs[i] if i < len(defs) else "", key=f"at_{i}")
-            assets.append(a.strip().upper())
+            a = a.strip().upper()
+            assets.append(a)
+            if a.startswith("^"):
+                st.caption("📈 Index")
         with cw[i]:
             w = st.slider(assets[i] or f"A{i+1}", 0, 100, dw, key=f"aw_{i}")
             weights.append(w)
