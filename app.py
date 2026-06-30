@@ -737,30 +737,30 @@ with st.sidebar:
     </div>""", unsafe_allow_html=True)
 
     MENU = [
-        ("Market Overview"),
-        ("Watchlist"),
-        ("Company Terminal"),
-        ("Charts & Technical"),
-        ("DCF Valuation"),
-        ("Multi-Compare"),
-        ("Portfolio Backtest"),
-        ("Stock Screener"),
-        ("Macro & FRED"),
-        ("Options & Derivatives"),
-        ("FX & Commodities"),
-        ("Economic Calendar"),
-        ("Dynamic Chart Engine"),
+        "Market Overview",
+        "Watchlist",
+        "Company Terminal",
+        "Charts & Technical",
+        "DCF Valuation",
+        "Multi-Compare",
+        "Portfolio Backtest",
+        "Stock Screener",
+        "Macro & FRED",
+        "Options & Derivatives",
+        "FX & Commodities",
+        "Economic Calendar",
+        "Dynamic Chart Engine",
     ]
-    for code, label in MENU:
-        active = st.session_state.page == label
-        if st.button(
-            f"{'▶' if active else '·'}  {code}  {label}",
-            key=f"nav_{code}",
-            use_container_width=True,
-            type="primary" if active else "secondary",
-        ):
-            st.session_state.page = label
-            st.rerun()
+   for label in MENU:
+    active = st.session_state.page == label
+    if st.button(
+        f"{'▶' if active else '·'}  {label}",
+        key=f"nav_{label}",
+        use_container_width=True,
+        type="primary" if active else "secondary",
+    ):
+        st.session_state.page = label
+        st.rerun()
 
     st.markdown("""
     <div style='margin-top:1.5rem;padding:0 0.5rem'>
