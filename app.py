@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 # ── Local modules ─────────────────────────────────────────────────
 from data_engine import (
     UnifiedMarketDataEngine,
-    yf_info, yf_close, yf_ohlcv, yf_price_chg,
+    yf_info, yf_close, yf_ohlcv, yf_price_chg, yf_price_chg_batch,
     yf_financials, yf_options, yf_holders,
     yf_recommendations, yf_earnings_dates,
     fetch_fred, FRED_SERIES,
@@ -47,6 +47,8 @@ from quant_engine import (
     compare_factor_models,
     FactorRegressionResult, FACTOR_MODEL_COLS,
     MODEL_DISPLAY_NAMES, FACTOR_DESCRIPTIONS,
+    # Black-Scholes
+    black_scholes, bs_implied_vol, bs_pnl_matrix, BSResult,
 )
 from data_engine import (
     fetch_ff_factors, fetch_asset_returns_for_regression,
@@ -1252,21 +1254,22 @@ if choice == "Market Overview":
                  "ENI.MI","ENEL.MI","RACE.MI","MC.PA","TTE.PA","SAP.DE","ASML.AS",
                  "BTC-USD","ETH-USD","SOL-USD","GC=F","CL=F"]
         with st.spinner("Fetching market snapshot…"):
-            idx_data  = {n: yf_price_chg(t) for n, t in INDICES.items()}
-            bond_data = {n: yf_price_chg(t) for n, t in BONDS.items()}
-            fx_data   = {n: yf_price_chg(t) for n, t in FX.items()}
-            comm_data = {n: yf_price_chg(t) for n, t in COMMS.items()}
-            stock_data = {}
-            for nm, tk in STOCKS.items():
-                stock_data[nm] = (tk, *yf_price_chg(tk))
+            all_tkrs = (
+                list(INDICES.values()) + list(BONDS.values()) +
+                list(FX.values()) + list(COMMS.values()) +
+                list(STOCKS.values()) + WATCH
+            )
+            batch = yf_price_chg_batch(tuple(dict.fromkeys(all_tkrs)))
+            idx_data   = {n: batch.get(t, (None, None)) for n, t in INDICES.items()}
+            bond_data  = {n: batch.get(t, (None, None)) for n, t in BONDS.items()}
+            fx_data    = {n: batch.get(t, (None, None)) for n, t in FX.items()}
+            comm_data  = {n: batch.get(t, (None, None)) for n, t in COMMS.items()}
+            stock_data = {nm: (tk, *batch.get(tk, (None, None))) for nm, tk in STOCKS.items()}
             mv: list[dict] = []
-            prg_mv = st.progress(0)
-            for i, tk in enumerate(WATCH):
-                prg_mv.progress((i + 1) / len(WATCH))
-                p, c = yf_price_chg(tk)
+            for tk in WATCH:
+                p, c = batch.get(tk, (None, None))
                 if p is not None and c is not None:
                     mv.append({"Ticker": tk, "Price": p, "Change%": c})
-            prg_mv.empty()
         st.session_state.market_data = {
             "indices": idx_data, "bonds": bond_data,
             "fx": fx_data, "comms": comm_data,
@@ -2504,6 +2507,64 @@ elif choice == "Options & Derivatives":
                     st.plotly_chart(fig_oi, use_container_width=True)
                 else: interrupted("OI data unavailable.")
 
+    # ── Black-Scholes Pricing Engine ────────────────────────────────
+    st.markdown("---")
+    sec("BLACK-SCHOLES OPTION PRICING MODEL")
+    with st.expander("📐 Open Pricing Calculator", expanded=False):
+        bs_c1, bs_c2, bs_c3 = st.columns(3)
+        with bs_c1:
+            bs_S     = st.number_input("Spot Price (S)", value=float(cur_p) if cur_p else 100.0, min_value=0.01, step=1.0, key="bs_S")
+            bs_K     = st.number_input("Strike Price (K)", value=float(round(cur_p,-1)) if cur_p else 100.0, min_value=0.01, step=1.0, key="bs_K")
+            bs_type  = st.radio("Option Type", ["call", "put"], horizontal=True, key="bs_type")
+        with bs_c2:
+            bs_T     = st.number_input("Days to Expiry", value=30, min_value=1, max_value=1000, step=1, key="bs_T")
+            bs_r     = st.number_input("Risk-Free Rate (%)", value=4.5, min_value=0.0, max_value=20.0, step=0.1, key="bs_r") / 100
+            bs_sigma = st.number_input("Implied Volatility (%)", value=25.0, min_value=0.1, max_value=500.0, step=0.5, key="bs_sigma") / 100
+        with bs_c3:
+            bs_mkt   = st.number_input("Market Price (for IV calc)", value=0.0, min_value=0.0, step=0.01, key="bs_mkt",
+                                        help="Enter observed market price to back out implied volatility. Leave 0 to skip.")
+
+        bs_res = black_scholes(bs_S, bs_K, bs_T / 365, bs_r, bs_sigma, bs_type)
+        if bs_res:
+            st.markdown("#### 📊 Pricing Output")
+            m1,m2,m3,m4,m5,m6 = st.columns(6)
+            m1.metric("Theoretical Price", f"${bs_res.price:.4f}")
+            m2.metric("Intrinsic Value",   f"${bs_res.intrinsic:.4f}")
+            m3.metric("Time Value",        f"${bs_res.time_value:.4f}")
+            m4.metric("Breakeven",         f"${bs_res.breakeven:.2f}")
+            m5.metric("Impl. Prob ITM",    f"{bs_res.implied_prob*100:.1f}%")
+            m6.metric("d1 / d2",           f"{bs_res.d1:.3f} / {bs_res.d2:.3f}")
+
+            st.markdown("#### 🔬 Greeks")
+            g1,g2,g3,g4,g5 = st.columns(5)
+            g1.metric("Delta  Δ", f"{bs_res.delta:+.4f}", help="Change in option price per $1 move in spot")
+            g2.metric("Gamma  Γ", f"{bs_res.gamma:.6f}",  help="Rate of change of delta per $1 move in spot")
+            g3.metric("Theta  Θ", f"{bs_res.theta:+.4f}", help="Daily time decay ($ per calendar day)")
+            g4.metric("Vega   ν", f"{bs_res.vega:+.4f}",  help="Change in price per +1% in implied vol")
+            g5.metric("Rho    ρ", f"{bs_res.rho:+.4f}",   help="Change in price per +1% in risk-free rate")
+
+            # Implied vol back-calculation
+            if bs_mkt > 0:
+                iv_calc = bs_implied_vol(bs_mkt, bs_S, bs_K, bs_T / 365, bs_r, bs_type)
+                if iv_calc:
+                    st.success(f"Implied Volatility from market price ${bs_mkt:.2f} → **{iv_calc*100:.2f}%**")
+                else:
+                    st.warning("Could not solve for implied vol from that market price (no solution in 0.01%–500%).")
+
+            # P&L sensitivity matrix
+            st.markdown("#### 📋 P&L Sensitivity Matrix (Spot × Volatility)")
+            pnl_df = bs_pnl_matrix(bs_S, bs_K, bs_T / 365, bs_r, bs_sigma, bs_type)
+            if not pnl_df.empty:
+                st.caption("Values show P&L vs current theoretical price. Green = profit, Red = loss.")
+                def _color_pnl(val):
+                    if isinstance(val, float):
+                        color = "#1a4a1a" if val > 0 else ("#4a1a1a" if val < 0 else "")
+                        return f"background-color: {color}; color: {'#00FF88' if val > 0 else '#FF3B3B' if val < 0 else 'inherit'}"
+                    return ""
+                st.dataframe(pnl_df.style.applymap(_color_pnl), use_container_width=True)
+        else:
+            st.warning("Invalid inputs: S, K, T, σ must all be > 0.")
+
 
 # ══════════════════════════════════════════════════════════
 #  PAGE: FX & COMMODITIES
@@ -2511,19 +2572,37 @@ elif choice == "Options & Derivatives":
 elif choice == "FX & Commodities":
     ptitle("FX & COMMODITIES","Currency pairs · Precious metals · Energy · Agricultural · Soft commodities")
 
+    FX_PAIRS = {
+        "EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X",
+        "AUD/USD":"AUDUSD=X","NZD/USD":"NZDUSD=X","USD/CAD":"USDCAD=X","USD/CNY":"USDCNY=X",
+        "USD/SEK":"USDSEK=X","USD/NOK":"USDNOK=X","USD/BRL":"USDBRL=X","USD/MXN":"USDMXN=X",
+        "USD/INR":"USDINR=X","EUR/GBP":"EURGBP=X","EUR/JPY":"EURJPY=X","DXY":"DX-Y.NYB",
+    }
+    METALS = {"Gold":"GC=F","Silver":"SI=F","Platinum":"PL=F","Palladium":"PA=F","Copper":"HG=F","Aluminum":"ALI=F","GLD ETF":"GLD","SLV ETF":"SLV","GDX Miners":"GDX"}
+    ENERGY = {"Crude WTI":"CL=F","Brent Crude":"BZ=F","Natural Gas":"NG=F","Gasoline":"RB=F","Heating Oil":"HO=F","USO ETF":"USO","UNG ETF":"UNG","XLE ETF":"XLE","OIH Services":"OIH"}
+    AGRI   = {"Corn":"ZC=F","Soybeans":"ZS=F","Wheat":"ZW=F","Coffee":"KC=F","Cotton":"CT=F","Sugar":"SB=F","Orange Juice":"OJ=F","Live Cattle":"LE=F","Lean Hogs":"HE=F","DBA ETF":"DBA","WEAT ETF":"WEAT","CORN ETF":"CORN","SOYB ETF":"SOYB"}
+
+    # ── Single batch fetch for all tickers on this page ──────────────
+    _fxc_cache_key = "fxc_prices"
+    if _fxc_cache_key not in st.session_state:
+        all_fxc = tuple(dict.fromkeys(
+            list(FX_PAIRS.values()) + list(METALS.values()) +
+            list(ENERGY.values()) + list(AGRI.values())
+        ))
+        with st.spinner("Loading prices…"):
+            st.session_state[_fxc_cache_key] = yf_price_chg_batch(all_fxc)
+    fxc_px = st.session_state[_fxc_cache_key]
+    if st.button("🔄 Refresh prices", key="fxc_refresh"):
+        del st.session_state[_fxc_cache_key]
+        st.rerun()
+
     t_fx, t_met, t_en, t_ag = st.tabs(["🌐 FX Majors","🥇 Metals","⛽ Energy","🌾 Agricultural"])
 
     with t_fx:
-        FX_PAIRS = {
-            "EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"USDJPY=X","USD/CHF":"USDCHF=X",
-            "AUD/USD":"AUDUSD=X","NZD/USD":"NZDUSD=X","USD/CAD":"USDCAD=X","USD/CNY":"USDCNY=X",
-            "USD/SEK":"USDSEK=X","USD/NOK":"USDNOK=X","USD/BRL":"USDBRL=X","USD/MXN":"USDMXN=X",
-            "USD/INR":"USDINR=X","EUR/GBP":"EURGBP=X","EUR/JPY":"EURJPY=X","DXY":"DX-Y.NYB",
-        }
         sec("MAJOR CURRENCY PAIRS")
         fc = st.columns(4)
         for i,(nm,tk) in enumerate(FX_PAIRS.items()):
-            p,c = yf_price_chg(tk); fc[i%4].metric(nm, f"{p:.4f}" if p else "N/A", f"{c:+.3f}%" if c else "—")
+            p,c = fxc_px.get(tk,(None,None)); fc[i%4].metric(nm, f"{p:.4f}" if p else "N/A", f"{c:+.3f}%" if c else "—")
         fx_sel = st.multiselect("Chart pairs", list(FX_PAIRS.keys()), default=["EUR/USD","GBP/USD","USD/JPY","DXY"])
         fx_per = st.selectbox("Period",["1mo","3mo","6mo","1y","3y","5y"],index=3,key="fx_per")
         if fx_sel:
@@ -2540,11 +2619,10 @@ elif choice == "FX & Commodities":
                 st.plotly_chart(fig_fx, use_container_width=True)
 
     with t_met:
-        METALS = {"Gold":"GC=F","Silver":"SI=F","Platinum":"PL=F","Palladium":"PA=F","Copper":"HG=F","Aluminum":"ALI=F","GLD ETF":"GLD","SLV ETF":"SLV","GDX Miners":"GDX"}
         sec("PRECIOUS & INDUSTRIAL METALS")
         mc = st.columns(3)
         for i,(nm,tk) in enumerate(METALS.items()):
-            p,c = yf_price_chg(tk); mc[i%3].metric(nm, f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
+            p,c = fxc_px.get(tk,(None,None)); mc[i%3].metric(nm, f"{p:,.2f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
         met_per = st.selectbox("Period",["3mo","6mo","1y","3y","5y","10y","max"],index=2,key="met_per")
         fr_m = {nm:s for nm,tk in METALS.items() for s in [_get_close(tk,period=met_per)] if not s.empty}
         if fr_m:
@@ -2559,11 +2637,10 @@ elif choice == "FX & Commodities":
             st.plotly_chart(fig_m, use_container_width=True)
 
     with t_en:
-        ENERGY = {"Crude WTI":"CL=F","Brent Crude":"BZ=F","Natural Gas":"NG=F","Gasoline":"RB=F","Heating Oil":"HO=F","USO ETF":"USO","UNG ETF":"UNG","XLE ETF":"XLE","OIH Services":"OIH"}
         sec("ENERGY COMMODITIES")
         ec = st.columns(3)
         for i,(nm,tk) in enumerate(ENERGY.items()):
-            p,c = yf_price_chg(tk); ec[i%3].metric(nm, f"{p:,.3f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
+            p,c = fxc_px.get(tk,(None,None)); ec[i%3].metric(nm, f"{p:,.3f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
         en_per = st.selectbox("Period",["3mo","6mo","1y","3y","5y"],index=2,key="en_per")
         fr_e = {nm:s for nm,tk in ENERGY.items() for s in [_get_close(tk,period=en_per)] if not s.empty}
         if fr_e:
@@ -2578,11 +2655,27 @@ elif choice == "FX & Commodities":
             st.plotly_chart(fig_e, use_container_width=True)
 
     with t_ag:
-        AGRI = {"Corn":"ZC=F","Soybeans":"ZS=F","Wheat":"ZW=F","Coffee":"KC=F","Cotton":"CT=F","Sugar":"SB=F","Orange Juice":"OJ=F","Live Cattle":"LE=F","Lean Hogs":"HE=F","DBA ETF":"DBA"}
         sec("AGRICULTURAL COMMODITIES")
         ag = st.columns(4)
         for i,(nm,tk) in enumerate(AGRI.items()):
-            p,c = yf_price_chg(tk); ag[i%4].metric(nm, f"{p:,.3f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
+            p,c = fxc_px.get(tk,(None,None)); ag[i%4].metric(nm, f"{p:,.3f}" if p else "N/A", f"{c:+.2f}%" if c else "—")
+        ag_per = st.selectbox("Period",["3mo","6mo","1y","3y","5y"],index=2,key="ag_per")
+        ag_sel = st.multiselect("Chart commodities", list(AGRI.keys()),
+                                default=["Corn","Soybeans","Wheat","Coffee"], key="ag_sel")
+        if ag_sel:
+            fr_ag = {nm:s for nm in ag_sel for s in [_get_close(AGRI[nm],period=ag_per)] if not s.empty}
+            if fr_ag:
+                d_ag = pd.DataFrame(fr_ag).dropna(how="all").ffill()
+                r_ag = ((d_ag/d_ag.iloc[0])-1)*100
+                fig_ag = go.Figure()
+                for ix,col in enumerate(r_ag.columns):
+                    r_sub = _subsample(r_ag[col])
+                    fig_ag.add_trace(go.Scatter(x=r_sub.index,y=r_sub,name=col,line=dict(width=1.8,color=COLORS[ix%len(COLORS)])))
+                fig_ag.add_hline(y=0,line_dash="dot",line_color="#141414")
+                fig_ag.update_layout(**_pla({"xaxis":xaxis_time(),"yaxis":yaxis_plain("Return %"),"height":360,"title":"Agricultural Performance"}))
+                st.plotly_chart(fig_ag, use_container_width=True)
+            else:
+                st.info("Price history not available for selected commodities.")
 
 
 # ══════════════════════════════════════════════════════════
