@@ -471,13 +471,46 @@ def fetch_backup_yfinance_screener(
 
 
 def load_screener_master_data(force_fallback: bool = False) -> tuple[pd.DataFrame, str]:
-    if not force_fallback:
-        df = fetch_finviz_screener_data()
+    # Finviz returns 403 from cloud IPs — skip it entirely and go straight to yFinance.
+    # Use a curated 300-ticker liquid universe for speed vs the full 1500-ticker universe.
+    _LIQUID_UNIVERSE: tuple[str, ...] = tuple([
+        # US Mega/Large Cap
+        "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B","JPM","V",
+        "MA","UNH","XOM","JNJ","PG","HD","AVGO","LLY","MRK","ABBV",
+        "PEP","KO","COST","WMT","MCD","DIS","NFLX","ADBE","CRM","ORCL",
+        "AMD","INTC","QCOM","TXN","AMAT","LRCX","KLAC","MU","MRVL","MCHP",
+        "GS","MS","BAC","WFC","C","BLK","SCHW","AXP","CB","MMC",
+        "RTX","LMT","NOC","GD","BA","CAT","DE","EMR","HON","MMM",
+        "CVX","COP","SLB","EOG","PXD","OXY","MPC","PSX","VLO","HES",
+        "PFE","BMY","GILD","AMGN","REGN","VRTX","BIIB","MRNA","ZTS","ELV",
+        "NEE","DUK","SO","D","AEP","EXC","SRE","PCG","ED","WEC",
+        "AMT","PLD","EQIX","CCI","PSA","DLR","SPG","O","VICI","EQR",
+        # US Mid/Small Growth
+        "UBER","LYFT","SNOW","DDOG","ZS","CRWD","NET","PLTR","COIN","HOOD",
+        "SQ","PYPL","SHOP","ROKU","TTD","RBLX","U","ABNB","DASH","DUOL",
+        "AFRM","UPST","SOFI","NU","ASTS","SMCI","ARM","ASML","TSM","SMIC",
+        # EU / UK
+        "ASML.AS","SAP.DE","LVMH.PA","TTE.PA","SAN.MC","BNP.PA","AXA.PA",
+        "SIE.DE","ALV.DE","BMW.DE","VOW3.DE","DTE.DE","BAS.DE","BAYN.DE",
+        "HSBA.L","BP.L","SHEL.L","AZN.L","GSK.L","RIO.L","ULVR.L","NG.L",
+        # Asia / EM
+        "9988.HK","0700.HK","BABA","JD","PDD","BIDU","NIO","LI","XPEV",
+        "TM","HMC","SONY","NTDOY","9984.T","7203.T","6758.T",
+        "005930.KS","000660.KS","035420.KS",
+        "RELIANCE.NS","TCS.NS","INFY","HDFCBANK.NS","ICICIBANK.NS",
+        # ETFs (for comparison)
+        "SPY","QQQ","IWM","EFA","EEM","GLD","TLT","HYG","LQD","VNQ",
+        "VWCE.DE","IWDA.AS","CSPX.L","SWDA.L","IUSN.DE","ZPRV","ZPRX",
+    ])
+    if force_fallback:
+        df = fetch_backup_yfinance_screener(universe=_LIQUID_UNIVERSE)
         if not df.empty:
-            return df, "Finviz"
-    df = fetch_backup_yfinance_screener(universe=tuple(SCREENER_UNIVERSE_FULL))
+            return df, "yFinance (Liquid 300)"
+        return _empty_screener_df(), "None (Network Error)"
+    # Default: try fast batch first
+    df = fetch_backup_yfinance_screener(universe=_LIQUID_UNIVERSE)
     if not df.empty:
-        return df, "yFinance Batch"
+        return df, "yFinance (Liquid 300)"
     return _empty_screener_df(), "None (Network Error)"
 
 
@@ -638,9 +671,64 @@ def yf_price_chg(ticker: str) -> tuple[float | None, float | None]:
         prev  = info.get("previousClose") or price
         if price and prev and prev != 0:
             return float(price), float((price - prev) / prev * 100)
-        return float(price) if price else None, None
+        # Fallback for futures/indices that lack info fields (e.g. ZC=F, ZW=F, ^VIX)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False, auto_adjust=True)
+        if df.empty:
+            return None, None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        closes = df["Close"].dropna()
+        if len(closes) >= 2:
+            p, pv = float(closes.iloc[-1]), float(closes.iloc[-2])
+            return p, (p - pv) / pv * 100 if pv != 0 else None
+        elif len(closes) == 1:
+            return float(closes.iloc[-1]), None
+        return None, None
     except Exception:
         return None, None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def yf_price_chg_batch(tickers: tuple[str, ...]) -> dict[str, tuple[float | None, float | None]]:
+    """
+    Batch version of yf_price_chg: fetches all tickers in a single yf.download call.
+    Much faster than calling yf_price_chg() in a loop — use this for pages with 5+ tickers.
+    Returns {ticker: (price, change_pct)} dict.
+    """
+    if not tickers:
+        return {}
+    try:
+        tickers_str = " ".join(tickers)
+        df = yf.download(tickers_str, period="5d", interval="1d",
+                         progress=False, auto_adjust=True, threads=True)
+        if df.empty:
+            return {t: (None, None) for t in tickers}
+        if isinstance(df.columns, pd.MultiIndex):
+            close = df["Close"] if "Close" in df.columns.get_level_values(0) else pd.DataFrame()
+        else:
+            # Single ticker — wrap in DataFrame
+            single = tickers[0]
+            close = df[["Close"]].rename(columns={"Close": single}) if "Close" in df.columns else pd.DataFrame()
+        if close.empty:
+            return {t: (None, None) for t in tickers}
+        close = close.dropna(how="all").ffill()
+        result: dict[str, tuple[float | None, float | None]] = {}
+        for t in tickers:
+            col = t if t in close.columns else None
+            if col is None:
+                result[t] = (None, None)
+                continue
+            s = close[col].dropna()
+            if len(s) >= 2:
+                p, pv = float(s.iloc[-1]), float(s.iloc[-2])
+                result[t] = (p, (p - pv) / pv * 100 if pv != 0 else None)
+            elif len(s) == 1:
+                result[t] = (float(s.iloc[-1]), None)
+            else:
+                result[t] = (None, None)
+        return result
+    except Exception:
+        return {t: (None, None) for t in tickers}
 
 
 @st.cache_data(ttl=600, show_spinner=False)
