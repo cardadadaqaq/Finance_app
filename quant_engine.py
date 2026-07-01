@@ -16,6 +16,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from scipy.optimize import brentq
+from scipy.stats import norm
 
 warnings.filterwarnings("ignore")
 
@@ -799,3 +800,127 @@ def compare_factor_models(
         if res is not None:
             results[m] = res
     return results
+
+
+# ══════════════════════════════════════════════════════════
+#  BLACK-SCHOLES OPTION PRICING ENGINE
+# ══════════════════════════════════════════════════════════
+
+@dataclass
+class BSResult:
+    """Output of Black-Scholes pricing for a single option."""
+    option_type:  str   # "call" or "put"
+    S:  float; K: float; T: float; r: float; sigma: float
+    price:  float
+    delta:  float
+    gamma:  float
+    theta:  float   # per calendar day
+    vega:   float   # per 1% move in vol
+    rho:    float   # per 1% move in rates
+    d1: float; d2: float
+    intrinsic:    float
+    time_value:   float
+    breakeven:    float
+    implied_prob: float   # N(d2) for calls, N(-d2) for puts
+
+
+def black_scholes(
+    S: float,        # spot price
+    K: float,        # strike
+    T: float,        # time to expiry in years
+    r: float,        # risk-free rate (annual, decimal)
+    sigma: float,    # implied volatility (annual, decimal)
+    option_type: str = "call",
+) -> BSResult | None:
+    """
+    Compute Black-Scholes price and all first-order Greeks for a European option.
+    Returns None if inputs are invalid (T<=0, S<=0, K<=0, sigma<=0).
+    """
+    if T <= 0 or S <= 0 or K <= 0 or sigma <= 0:
+        return None
+    try:
+        sqrt_T = math.sqrt(T)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt_T)
+        d2 = d1 - sigma * sqrt_T
+        nd1, nd2   = norm.cdf(d1),  norm.cdf(d2)
+        nd1n, nd2n = norm.cdf(-d1), norm.cdf(-d2)
+        pdf_d1 = norm.pdf(d1)
+        disc = math.exp(-r * T)
+
+        if option_type == "call":
+            price     = S * nd1 - K * disc * nd2
+            delta     = nd1
+            intrinsic = max(S - K, 0.0)
+            impl_prob = nd2
+            breakeven = K + price
+            rho       = K * T * disc * nd2 / 100
+        else:
+            price     = K * disc * nd2n - S * nd1n
+            delta     = nd1 - 1
+            intrinsic = max(K - S, 0.0)
+            impl_prob = nd2n
+            breakeven = K - price
+            rho       = -K * T * disc * nd2n / 100
+
+        gamma = pdf_d1 / (S * sigma * sqrt_T)
+        vega  = S * pdf_d1 * sqrt_T / 100          # per 1% vol move
+        theta = (-(S * pdf_d1 * sigma) / (2 * sqrt_T) - r * K * disc * (nd2 if option_type == "call" else nd2n)) / 365
+
+        return BSResult(
+            option_type=option_type, S=S, K=K, T=T, r=r, sigma=sigma,
+            price=price, delta=delta, gamma=gamma, theta=theta,
+            vega=vega, rho=rho, d1=d1, d2=d2,
+            intrinsic=intrinsic, time_value=price - intrinsic,
+            breakeven=breakeven, implied_prob=impl_prob,
+        )
+    except Exception:
+        return None
+
+
+def bs_implied_vol(
+    market_price: float,
+    S: float, K: float, T: float, r: float,
+    option_type: str = "call",
+    tol: float = 1e-6,
+) -> float | None:
+    """
+    Back out implied volatility from a market price using Brent's method.
+    Returns None if no solution found in [0.1%, 500%].
+    """
+    if T <= 0 or market_price <= 0:
+        return None
+    try:
+        def objective(sigma: float) -> float:
+            res = black_scholes(S, K, T, r, sigma, option_type)
+            return (res.price - market_price) if res else float("nan")
+        iv = brentq(objective, 1e-4, 5.0, xtol=tol, maxiter=200)
+        return float(iv)
+    except Exception:
+        return None
+
+
+def bs_pnl_matrix(
+    S: float, K: float, T: float, r: float, sigma: float,
+    option_type: str = "call",
+    spot_range: float = 0.30,   # ±30% of spot
+    vol_range:  float = 0.50,   # ±50% of sigma
+    n_spots: int = 11,
+    n_vols:  int = 7,
+) -> pd.DataFrame:
+    """
+    P&L matrix (Δspot vs Δvol) for sensitivity analysis.
+    Rows = spot levels, Columns = vol levels.
+    """
+    base = black_scholes(S, K, T, r, sigma, option_type)
+    if base is None:
+        return pd.DataFrame()
+    spots = np.linspace(S * (1 - spot_range), S * (1 + spot_range), n_spots)
+    vols  = np.linspace(max(sigma * (1 - vol_range), 0.01), sigma * (1 + vol_range), n_vols)
+    rows = []
+    for s in spots:
+        row = {}
+        for v in vols:
+            res = black_scholes(s, K, T, r, v, option_type)
+            row[f"σ={v*100:.0f}%"] = round(res.price - base.price, 4) if res else float("nan")
+        rows.append({"Spot": round(s, 2), **row})
+    return pd.DataFrame(rows).set_index("Spot")
